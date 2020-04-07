@@ -5,3 +5,4 @@ authors = ["Samuele Esposito <36164633+SamueleEsposito@users.noreply.github.com>
 edition = "2018"
 
 [dependencies]
+tini = "0.2"

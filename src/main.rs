@@ -1,6 +1,5 @@
-use xcursor::theme_search_dirs;
-use std::env::var;
+use xcursor::{theme_search_paths, XCursorTheme};
 
 fn main() {
-    println!("{:?}", theme_search_dirs());
+    println!("{:?}", theme_search_paths());
 }

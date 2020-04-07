@@ -1,6 +1,8 @@
 use std::env::var;
 use std::path::PathBuf;
 
+use tini::Ini;
+
 /// This function returns the list of paths where the themes have to
 /// be searched, according to the XDG Icon Theme specification.
 ///
@@ -8,7 +10,7 @@ use std::path::PathBuf;
 ///
 /// If the $HOME environment variable is not set,
 /// or if its value contains the NUL character
-pub fn theme_search_dirs() -> Vec<PathBuf> {
+pub fn theme_search_paths() -> Vec<PathBuf> {
     let mut res: Vec<PathBuf> = Vec::new();
 
     res.push([var("HOME").unwrap(), String::from(".icons")].iter().collect());
@@ -20,5 +22,78 @@ pub fn theme_search_dirs() -> Vec<PathBuf> {
     res.push(PathBuf::from("/usr/share/pixmaps"));
 
     res
+}
+
+
+pub struct XCursorTheme {
+    name: String,
+    dirs: Vec<PathBuf>,
+    inherits: String,
+    search_paths: Vec<PathBuf>,
+}
+
+impl XCursorTheme {
+
+    /// This functions searches for a theme with the given name
+    /// in the given search paths, and returns an XCursorTheme which
+    /// represents it.
+    /// If no inheritance can be determined, then the themes inherits
+    /// from the "default" theme
+    pub fn load(name: &str, search_paths: &Vec<PathBuf>) -> Self {
+        let mut dirs = Vec::new();
+        let mut inherits = String::from("default");
+
+        // Find dirs
+        for mut path in search_paths.clone() {
+            path.push(name);
+            if path.is_dir() {
+                dirs.push(path.clone());
+            }
+        }
+
+        // Find inheritance
+        for mut path in dirs.clone() {
+            path.push("index.theme");
+
+            if let Some(i) = theme_inherits(&path) {
+                inherits = i;
+            }
+        }
+
+        Self {
+            name: String::from(name),
+            dirs,
+            inherits,
+            search_paths: search_paths.clone(),
+        }
+    }
+
+    /// Attempts to load an icon from the theme.
+    /// If the icon is not found within this theme's
+    /// directories, then the function looks at the
+    /// theme from which this theme is inherited.
+    pub fn load_icon(&self, icon_name: &str) -> Option<PathBuf> {
+        for mut icon_path in self.dirs.clone() {
+            icon_path.push(icon_name);
+
+            if icon_path.is_file() {
+                return Some(icon_path);
+            }
+        }
+
+        // If we're trying to find the inheritance of default
+        if self.name == self.inherits {
+            return None;
+        }
+
+        XCursorTheme::load(&self.inherits, &self.search_paths).load_icon(icon_name)
+    }
+
+}
+
+fn theme_inherits(file_path: &PathBuf) -> Option<String> {
+    let ini = Ini::from_file(file_path).ok()?;
+
+    ini.get("Icon Theme", "Inherits")
 }
 
