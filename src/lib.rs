@@ -1,7 +1,7 @@
 use std::env::var;
 use std::path::PathBuf;
 
-use tini::Ini;
+use ini::Ini;
 
 /// This function returns the list of paths where the themes have to
 /// be searched, according to the XDG Icon Theme specification.
@@ -25,6 +25,7 @@ pub fn theme_search_paths() -> Vec<PathBuf> {
 }
 
 
+#[derive(Debug)]
 pub struct XCursorTheme {
     name: String,
     dirs: Vec<PathBuf>,
@@ -74,6 +75,7 @@ impl XCursorTheme {
     /// theme from which this theme is inherited.
     pub fn load_icon(&self, icon_name: &str) -> Option<PathBuf> {
         for mut icon_path in self.dirs.clone() {
+            icon_path.push("cursors");
             icon_path.push(icon_name);
 
             if icon_path.is_file() {
@@ -92,8 +94,11 @@ impl XCursorTheme {
 }
 
 fn theme_inherits(file_path: &PathBuf) -> Option<String> {
-    let ini = Ini::from_file(file_path).ok()?;
+    let ini = match Ini::load_from_file(file_path) {
+        Ok(i)  => i,
+        Err(_) => return None,
+    };
 
-    ini.get("Icon Theme", "Inherits")
+    ini.section(Some("Icon Theme")).unwrap().get("Inherits").map(|i| { i.to_string() })
 }
 

@@ -1,5 +1,6 @@
 use xcursor::{theme_search_paths, XCursorTheme};
 
 fn main() {
-    println!("{:?}", theme_search_paths());
+    let theme = XCursorTheme::load("breeze_cursors", &theme_search_paths());
+    println!("{:#?}", theme);
 }
