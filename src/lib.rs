@@ -35,11 +35,11 @@ pub struct XCursorTheme {
 
 impl XCursorTheme {
 
-    /// This functions searches for a theme with the given name
+    /// This function searches for a theme with the given name
     /// in the given search paths, and returns an XCursorTheme which
     /// represents it.
     /// If no inheritance can be determined, then the themes inherits
-    /// from the "default" theme
+    /// from the "default" theme.
     pub fn load(name: &str, search_paths: &Vec<PathBuf>) -> Self {
         let mut dirs = Vec::new();
         let mut inherits = String::from("default");
@@ -93,12 +93,16 @@ impl XCursorTheme {
 
 }
 
+/// Loads the specified index.theme file, and returns a Some with
+/// the value of the Inherits key in it.
+/// Returns None if the file cannot be read for any reason,
+/// if the file cannot be parsed, or if the `Inherits` key is omitted.
 fn theme_inherits(file_path: &PathBuf) -> Option<String> {
-    let ini = match Ini::load_from_file(file_path) {
-        Ok(i)  => i,
-        Err(_) => return None,
-    };
+    let ini = Ini::load_from_file(file_path).ok()?;
 
-    ini.section(Some("Icon Theme")).unwrap().get("Inherits").map(|i| { i.to_string() })
+    ini
+        .section(Some("Icon Theme"))?
+        .get("Inherits")
+        .map(|i| { i.to_string() })
 }
 
