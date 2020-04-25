@@ -10,5 +10,10 @@ repository = "https://github.com/esposm03/xcursor-rs"
 documentation = "https://docs.rs/xcursor-rs"
 readme = "README.md"
 
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+]
+
 [dependencies]
 rust-ini = "0.15"
