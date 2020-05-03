@@ -1,7 +1,9 @@
 use std::env::var;
 use std::path::PathBuf;
+use std::fs::File;
+use std::io::Read;
 
-use ini::Ini;
+use regex::Regex;
 
 /// This function returns the list of paths where the themes have to
 /// be searched, according to the XDG Icon Theme specification.
@@ -97,12 +99,14 @@ impl XCursorTheme {
 /// the value of the Inherits key in it.
 /// Returns None if the file cannot be read for any reason,
 /// if the file cannot be parsed, or if the `Inherits` key is omitted.
-fn theme_inherits(file_path: &PathBuf) -> Option<String> {
-    let ini = Ini::load_from_file(file_path).ok()?;
+pub fn theme_inherits(file_path: &PathBuf) -> Option<String> {
+    let mut content = String::new();
+    let mut file = File::open(file_path).ok()?;
+    file.read_to_string(&mut content).ok()?;
 
-    ini
-        .section(Some("Icon Theme"))?
-        .get("Inherits")
-        .map(|i| { i.to_string() })
+    let re = Regex::new(r"Inherits\s*=\s*([a-zA-Z0-9-_]+)").unwrap();
+    let matches = re.captures_iter(&content).nth(0)?;
+
+    Some(String::from(&matches[1]))
 }
 
