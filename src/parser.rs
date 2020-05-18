@@ -33,8 +33,8 @@ pub struct Image {
 	/// The amount of time (in milliseconds) that this image should be shown for, before switching to the next.
 	pub delay: u32,
 
-	/// A slice containing the pixels' bytes, in RGBA format.
-	pub pixels: Vec<u8>,
+	/// A slice containing the pixels' bytes, in RGBA format (or, in the order of the file).
+	pub pixels_rgba: Vec<u8>,
 
 	/// A slice containing the pixels' bytes, in ARGB format.
 	pub pixels_argb: Vec<u8>,
@@ -89,7 +89,7 @@ fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
 	let img_length: usize = (4 * width * height) as usize;
 	let (i, pixels_slice) = bytes::take(img_length)(i)?;
 	let pixels_argb = rgba_to_argb(pixels_slice);
-	let pixels = Vec::from(pixels_slice);
+	let pixels_rgba = Vec::from(pixels_slice);
 
 	Ok((i, Image {
 		size,
@@ -99,7 +99,7 @@ fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
 		yhot,
 		delay,
 		pixels_argb,
-		pixels,
+		pixels_rgba,
 	}))
 }
 
