@@ -5,6 +5,8 @@ use std::io::Read;
 
 use regex::Regex;
 
+pub mod parser;
+
 /// This function returns the list of paths where the themes have to
 /// be searched, according to the XDG Icon Theme specification.
 ///

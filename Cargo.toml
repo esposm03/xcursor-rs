@@ -17,4 +17,4 @@ include = [
 
 [dependencies]
 regex = "1"
-xcursor-parser = {path = "../xcursor-parser"}
+nom = "5"
