@@ -14,7 +14,7 @@ struct TOC {
 /// A struct representing an image.
 /// Pixels are in ARGB format, with each byte representing a single channel.
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct Image<'a> {
+pub struct Image {
 	/// The nominal size of the image.
 	pub size: u32,
 
@@ -33,11 +33,14 @@ pub struct Image<'a> {
 	/// The amount of time (in milliseconds) that this image should be shown for, before switching to the next.
 	pub delay: u32,
 
-	/// A slice containing the pixels' bytes.
-	pixels: &'a [u8],
+	/// A slice containing the pixels' bytes, in RGBA format.
+	pub pixels: Vec<u8>,
+
+	/// A slice containing the pixels' bytes, in ARGB format.
+	pub pixels_argb: Vec<u8>,
 }
 
-impl std::fmt::Display for Image<'_> {
+impl std::fmt::Display for Image {
 	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
 		f.debug_struct("Image")
 		 .field("size", &self.size)
@@ -84,7 +87,9 @@ fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
 	let (i, delay) = number::le_u32(i)?;
 
 	let img_length: usize = (4 * width * height) as usize;
-	let (i, pixels) = bytes::take(img_length)(i)?;
+	let (i, pixels_slice) = bytes::take(img_length)(i)?;
+	let pixels_argb = rgba_to_argb(pixels_slice);
+	let pixels = Vec::from(pixels_slice);
 
 	Ok((i, Image {
 		size,
@@ -93,8 +98,32 @@ fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
 		xhot,
 		yhot,
 		delay,
+		pixels_argb,
 		pixels,
 	}))
+}
+
+/// Converts a RGBA slice into an ARGB vec
+/// 
+/// # Panics
+/// If the input's length is not a multiple of 4
+fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
+	let mut res = Vec::with_capacity(i.len());
+	let mut iter = i.iter();
+
+	for _ in 0..(i.len()/4) {
+		let r = iter.next().unwrap();
+		let g = iter.next().unwrap();
+		let b = iter.next().unwrap();
+		let a = iter.next().unwrap();
+
+		res.push(a.clone());
+		res.push(r.clone());
+		res.push(g.clone());
+		res.push(b.clone());
+	}
+
+	res
 }
 
 pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
@@ -120,10 +149,9 @@ pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
 mod tests {
 	use super::{
 		TOC,
-		Image,
 		parse_header,
 		parse_toc,
-		parse_img,
+		rgba_to_argb,
 	};
 
 	// A sample (and simple) XCursor file generated with xcursorgen.
@@ -157,23 +185,32 @@ mod tests {
 	}
 
 	#[test]
-	fn test_parse_img() {
-		let mut pixels = Vec::new();
-		pixels.extend_from_slice(&FILE_CONTENTS[0x1C..]);
-		let img = Image {
-			delay: 1,
-			width: 4,
-			height: 4,
-			size: 4,
-			xhot: 1,
-			yhot: 1,
-			pixels: &pixels,
-		};
-		let parsed_img = 
+	fn test_rgba_to_argb() {
+		let initial: [u8; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
 		assert_eq!(
-			(&pixels[pixels.len()..], img),
-			parse_img(&pixels).unwrap()
+			rgba_to_argb(&initial),
+			[3u8, 0, 1, 2, 7, 4, 5, 6]
+		)
+	}
+
+	#[test]
+	fn test_rgba_to_argb_extra_items() {
+		let initial: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+		
+		assert_eq!(
+			rgba_to_argb(&initial),
+			&[3u8, 0, 1, 2, 7, 4, 5, 6]
+		);
+	}
+
+	#[test]
+	fn test_rgba_to_argb_no_items() {
+		let initial: &[u8] = &[];
+
+		assert_eq!(
+			initial,
+			&rgba_to_argb(initial)[..]
 		);
 	}
 }
