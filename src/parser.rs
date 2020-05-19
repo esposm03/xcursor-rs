@@ -105,8 +105,8 @@ fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
 
 /// Converts a RGBA slice into an ARGB vec
 /// 
-/// # Panics
-/// If the input's length is not a multiple of 4
+/// Note that, if the input length is not
+/// a multiple of 4, the extra elements are ignored.
 fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
 	let mut res = Vec::with_capacity(i.len());
 	let mut iter = i.iter();
@@ -126,6 +126,7 @@ fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
 	res
 }
 
+/// Parse an XCursor file into its images.
 pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
 	let (mut i, ntoc) = parse_header(content).ok()?;
 	let mut imgs = Vec::with_capacity(ntoc as usize);
