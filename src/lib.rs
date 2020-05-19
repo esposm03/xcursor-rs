@@ -1,9 +1,14 @@
+//! A crate to load cursor themes, and parse XCursor files.
+
 use std::env::var;
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::Read;
 
 use regex::Regex;
+
+/// A module implementing XCursor file parsing.
+pub mod parser;
 
 /// This function returns the list of paths where the themes have to
 /// be searched, according to the XDG Icon Theme specification.
@@ -27,15 +32,16 @@ pub fn theme_search_paths() -> Vec<PathBuf> {
 }
 
 
-#[derive(Debug)]
-pub struct XCursorTheme {
+/// A struct representing a cursor theme.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CursorTheme {
     name: String,
     dirs: Vec<PathBuf>,
     inherits: String,
     search_paths: Vec<PathBuf>,
 }
 
-impl XCursorTheme {
+impl CursorTheme {
 
     /// This function searches for a theme with the given name
     /// in the given search paths, and returns an XCursorTheme which
@@ -63,7 +69,7 @@ impl XCursorTheme {
             }
         }
 
-        Self {
+        CursorTheme {
             name: String::from(name),
             dirs,
             inherits,
@@ -90,7 +96,7 @@ impl XCursorTheme {
             return None;
         }
 
-        XCursorTheme::load(&self.inherits, &self.search_paths).load_icon(icon_name)
+        CursorTheme::load(&self.inherits, &self.search_paths).load_icon(icon_name)
     }
 
 }

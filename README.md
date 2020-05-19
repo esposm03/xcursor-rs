@@ -4,5 +4,9 @@
 [![Docs.rs](https://docs.rs/xcursor/badge.svg)](https://docs.rs/xcursor/)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A library to load XCursor themes, and obtain the path 
-of an icon, given its name and the theme's name.
+A library to load XCursor themes, and parse XCursor files.
+
+
+# Possible issues (to be tested)
+- Endianness of file is not completely clear (it's either little or
+native, the spec doesn't say anything about it)
