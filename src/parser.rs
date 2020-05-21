@@ -109,18 +109,12 @@ fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
 /// a multiple of 4, the extra elements are ignored.
 fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
 	let mut res = Vec::with_capacity(i.len());
-	let mut iter = i.iter();
 
-	for _ in 0..(i.len()/4) {
-		let r = iter.next().unwrap();
-		let g = iter.next().unwrap();
-		let b = iter.next().unwrap();
-		let a = iter.next().unwrap();
-
-		res.push(a.clone());
-		res.push(r.clone());
-		res.push(g.clone());
-		res.push(b.clone());
+	for rgba in i.windows(4) {
+		res.push(rgba[3]);
+		res.push(rgba[0]);
+		res.push(rgba[1]);
+		res.push(rgba[2]);
 	}
 
 	res
@@ -135,7 +129,7 @@ pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
 		let (j, toc) = parse_toc(i).ok()?;
 		i = j;
 
-		if toc.toctype == 0xfffd0002 {
+		if toc.toctype == 0xfffd_0002 {
 			let index = toc.pos as usize..;
 			let (_, img) = parse_img(&content[index]).ok()?;
 			imgs.push(img);

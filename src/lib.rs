@@ -1,7 +1,7 @@
 //! A crate to load cursor themes, and parse XCursor files.
 
 use std::env::var;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::Read;
 
@@ -22,7 +22,7 @@ pub fn theme_search_paths() -> Vec<PathBuf> {
 
     res.push([var("HOME").unwrap(), String::from(".icons")].iter().collect());
 
-    for i in var("XDG_DATA_DIRS").unwrap_or("/usr/local/share/:/usr/share/".to_string()).split(':') {
+    for i in var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share/:/usr/share/".to_string()).split(':') {
         res.push([i, "icons"].iter().collect());
     }
 
@@ -48,7 +48,7 @@ impl CursorTheme {
     /// represents it.
     /// If no inheritance can be determined, then the themes inherits
     /// from the "default" theme.
-    pub fn load(name: &str, search_paths: &Vec<PathBuf>) -> Self {
+    pub fn load(name: &str, search_paths: Vec<PathBuf>) -> Self {
         let mut dirs = Vec::new();
         let mut inherits = String::from("default");
 
@@ -73,7 +73,7 @@ impl CursorTheme {
             name: String::from(name),
             dirs,
             inherits,
-            search_paths: search_paths.clone(),
+            search_paths,
         }
     }
 
@@ -96,7 +96,7 @@ impl CursorTheme {
             return None;
         }
 
-        CursorTheme::load(&self.inherits, &self.search_paths).load_icon(icon_name)
+        CursorTheme::load(&self.inherits, self.search_paths.clone()).load_icon(icon_name)
     }
 
 }
@@ -105,13 +105,13 @@ impl CursorTheme {
 /// the value of the Inherits key in it.
 /// Returns None if the file cannot be read for any reason,
 /// if the file cannot be parsed, or if the `Inherits` key is omitted.
-pub fn theme_inherits(file_path: &PathBuf) -> Option<String> {
+pub fn theme_inherits(file_path: &Path) -> Option<String> {
     let mut content = String::new();
     let mut file = File::open(file_path).ok()?;
     file.read_to_string(&mut content).ok()?;
 
     let re = Regex::new(r"Inherits\s*=\s*([a-zA-Z0-9-_]+)").unwrap();
-    let matches = re.captures_iter(&content).nth(0)?;
+    let matches = re.captures_iter(&content).next()?;
 
     Some(String::from(&matches[1]))
 }
