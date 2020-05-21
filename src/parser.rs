@@ -137,7 +137,6 @@ pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
 
 		if toc.toctype == 0xfffd0002 {
 			let index = toc.pos as usize..;
-			println!("{:x?}", index);
 			let (_, img) = parse_img(&content[index]).ok()?;
 			imgs.push(img);
 		}
