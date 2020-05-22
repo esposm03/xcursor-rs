@@ -16,9 +16,16 @@ pub mod parser;
 pub fn theme_search_paths() -> Vec<PathBuf> {
     let mut res: Vec<PathBuf> = Vec::new();
 
-    res.push([var("HOME").unwrap(), String::from(".icons")].iter().collect());
+    res.push(
+        [var("HOME").unwrap(), String::from(".icons")]
+            .iter()
+            .collect(),
+    );
 
-    for i in var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share/:/usr/share/".to_string()).split(':') {
+    for i in var("XDG_DATA_DIRS")
+        .unwrap_or_else(|_| "/usr/local/share/:/usr/share/".to_string())
+        .split(':')
+    {
         res.push([i, "icons"].iter().collect());
     }
 
@@ -26,7 +33,6 @@ pub fn theme_search_paths() -> Vec<PathBuf> {
 
     res
 }
-
 
 /// A struct representing a cursor theme.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -38,7 +44,6 @@ pub struct CursorTheme {
 }
 
 impl CursorTheme {
-
     /// This function searches for a theme with the given name
     /// in the given search paths, and returns an XCursorTheme which
     /// represents it.
@@ -94,7 +99,6 @@ impl CursorTheme {
 
         CursorTheme::load(&self.inherits, self.search_paths.clone()).load_icon(icon_name)
     }
-
 }
 
 /// Loads the specified index.theme file, and returns a `Some` with
@@ -102,7 +106,6 @@ impl CursorTheme {
 /// Returns `None` if the file cannot be read for any reason,
 /// if the file cannot be parsed, or if the `Inherits` key is omitted.
 pub fn theme_inherits(file_path: &Path) -> Option<String> {
-
     let content = std::fs::read_to_string(file_path).ok()?;
 
     parse_theme(&content)
@@ -110,7 +113,7 @@ pub fn theme_inherits(file_path: &Path) -> Option<String> {
 
 /// Parse the content of the `index.theme` and return the `Inherits` value.
 fn parse_theme(content: &str) -> Option<String> {
-    const PATTERN: &'static str = "Inherits";
+    const PATTERN: &str = "Inherits";
 
     let is_xcursor_space_or_separator =
         |&ch: &char| -> bool { ch.is_whitespace() || ch == ';' || ch == ',' };
@@ -143,14 +146,12 @@ fn parse_theme(content: &str) -> Option<String> {
     None
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::parse_theme;
 
     #[test]
     fn parse_inherits() {
-
         let theme_name = String::from("XCURSOR_RS");
 
         let theme = format!("Inherits={}", theme_name.clone());
@@ -161,7 +162,10 @@ mod tests {
 
         assert_eq!(parse_theme(&theme), None);
 
-        let theme = format!("[THEME name]\nInherits   = ,;\t\t{};;;;Tail\n\n", theme_name.clone());
+        let theme = format!(
+            "[THEME name]\nInherits   = ,;\t\t{};;;;Tail\n\n",
+            theme_name.clone()
+        );
 
         assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
 
@@ -173,7 +177,10 @@ mod tests {
 
         assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
 
-        let theme = format!("Inherits = ;;\nSome\tgarbage\nInherits={}", theme_name.clone());
+        let theme = format!(
+            "Inherits = ;;\nSome\tgarbage\nInherits={}",
+            theme_name.clone()
+        );
 
         assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
     }
