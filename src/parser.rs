@@ -110,7 +110,9 @@ fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
 fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
 	let mut res = Vec::with_capacity(i.len());
 
-	for rgba in i.windows(4) {
+	for rgba in i.chunks(4) {
+                if rgba.len() < 4 { break; }
+
 		res.push(rgba[3]);
 		res.push(rgba[0]);
 		res.push(rgba[1]);
