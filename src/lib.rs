@@ -1,15 +1,134 @@
 //! A crate to load cursor themes, and parse XCursor files.
 
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
 /// A module implementing XCursor file parsing.
 pub mod parser;
 
+/// A cursor theme.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CursorTheme {
+    theme: CursorThemeIml,
+    /// Global search path for themes.
+    search_paths: Vec<PathBuf>,
+}
+
+impl CursorTheme {
+    /// Search for a theme with the given name in the given search paths,
+    /// and returns an XCursorTheme which represents it. If no inheritance
+    /// can be determined, then the themes inherits from the "default" theme.
+    pub fn load(name: &str) -> Self {
+        let search_paths = theme_search_paths();
+
+        let theme = CursorThemeIml::load(name, &search_paths);
+
+        CursorTheme {
+            theme,
+            search_paths,
+        }
+    }
+
+    /// Try to load an icon from the theme.
+    /// If the icon is not found within this theme's
+    /// directories, then the function looks at the
+    /// theme from which this theme is inherited.
+    pub fn load_icon(&self, icon_name: &str) -> Option<PathBuf> {
+        let mut walked_themes = HashSet::new();
+
+        self.theme
+            .load_icon(icon_name, &self.search_paths, &mut walked_themes)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct CursorThemeIml {
+    /// Theme name.
+    name: String,
+    /// Directories where the theme is presented and corresponding names of inherited themes.
+    /// `None` if theme inherits nothing.
+    data: Vec<(PathBuf, Option<String>)>,
+}
+
+impl CursorThemeIml {
+    /// The implementation of cursor theme loading.
+    fn load(name: &str, search_paths: &[PathBuf]) -> Self {
+        let mut data = Vec::new();
+
+        // Find directories where this theme is presented.
+        for mut path in search_paths.to_owned() {
+            path.push(name);
+            if path.is_dir() {
+                let data_dir = path.clone();
+
+                path.push("index.theme");
+                let inherits = if let Some(inherits) = theme_inherits(&path) {
+                    Some(inherits)
+                } else if name != "default" {
+                    Some(String::from("default"))
+                } else {
+                    None
+                };
+
+                data.push((data_dir, inherits));
+            }
+        }
+
+        CursorThemeIml {
+            name: name.to_owned(),
+            data,
+        }
+    }
+
+    /// The implementation of cursor icon loading.
+    fn load_icon(
+        &self,
+        icon_name: &str,
+        search_paths: &[PathBuf],
+        walked_themes: &mut HashSet<String>,
+    ) -> Option<PathBuf> {
+        for data in &self.data {
+            let mut icon_path = data.0.clone();
+            icon_path.push("cursors");
+            icon_path.push(icon_name);
+            if icon_path.is_file() {
+                return Some(icon_path);
+            }
+        }
+
+        // We've processed all based theme files. Traverse inherited themes, marking this theme
+        // as already visited to avoid infinite recursion.
+        walked_themes.insert(self.name.clone());
+
+        for data in &self.data {
+            // Get inherited theme name, if any.
+            let inherits = match data.1.as_ref() {
+                Some(inherits) => inherits,
+                None => continue,
+            };
+
+            // We've walked this theme, avoid rebuilding.
+            if walked_themes.contains(inherits) {
+                continue;
+            }
+
+            let inherited_theme = CursorThemeIml::load(inherits, &search_paths);
+
+            match inherited_theme.load_icon(icon_name, search_paths, walked_themes) {
+                Some(icon_path) => return Some(icon_path),
+                None => continue,
+            }
+        }
+
+        None
+    }
+}
+
 /// Get the list of paths where the themes have to be searched,
 /// according to the XDG Icon Theme specification, respecting `XCURSOR_PATH` env
 /// variable, in case it was set.
-pub fn theme_search_paths() -> Vec<PathBuf> {
+fn theme_search_paths() -> Vec<PathBuf> {
     // Handle the `XCURSOR_PATH` env variable, which takes over default search paths for cursor
     // theme. Some systems rely are using non standard directory layout and primary using this
     // env variable to perform cursor loading from a right places.
@@ -78,76 +197,11 @@ pub fn theme_search_paths() -> Vec<PathBuf> {
         .collect()
 }
 
-/// A cursor theme.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct CursorTheme {
-    name: String,
-    dirs: Vec<PathBuf>,
-    inherits: String,
-    search_paths: Vec<PathBuf>,
-}
-
-impl CursorTheme {
-    /// Search for a theme with the given name in the given search paths,
-    /// and returns an XCursorTheme which represents it. If no inheritance
-    /// can be determined, then the themes inherits from the "default" theme.
-    pub fn load(name: &str, search_paths: Vec<PathBuf>) -> Self {
-        let mut dirs = Vec::new();
-        let mut inherits = String::from("default");
-
-        // Find dirs
-        for mut path in search_paths.clone() {
-            path.push(name);
-            if path.is_dir() {
-                dirs.push(path.clone());
-            }
-        }
-
-        // Find inheritance
-        for mut path in dirs.clone() {
-            path.push("index.theme");
-
-            if let Some(i) = theme_inherits(&path) {
-                inherits = i;
-            }
-        }
-
-        CursorTheme {
-            name: String::from(name),
-            dirs,
-            inherits,
-            search_paths,
-        }
-    }
-
-    /// Try to load an icon from the theme.
-    /// If the icon is not found within this theme's
-    /// directories, then the function looks at the
-    /// theme from which this theme is inherited.
-    pub fn load_icon(&self, icon_name: &str) -> Option<PathBuf> {
-        for mut icon_path in self.dirs.clone() {
-            icon_path.push("cursors");
-            icon_path.push(icon_name);
-
-            if icon_path.is_file() {
-                return Some(icon_path);
-            }
-        }
-
-        // If we're trying to find the inheritance of default
-        if self.name == self.inherits {
-            return None;
-        }
-
-        CursorTheme::load(&self.inherits, self.search_paths.clone()).load_icon(icon_name)
-    }
-}
-
 /// Load the specified index.theme file, and returns a `Some` with
 /// the value of the `Inherits` key in it.
 /// Returns `None` if the file cannot be read for any reason,
 /// if the file cannot be parsed, or if the `Inherits` key is omitted.
-pub fn theme_inherits(file_path: &Path) -> Option<String> {
+fn theme_inherits(file_path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(file_path).ok()?;
 
     parse_theme(&content)
