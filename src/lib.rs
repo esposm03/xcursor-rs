@@ -1,40 +1,84 @@
 //! A crate to load cursor themes, and parse XCursor files.
 
-use std::env::var;
+use std::env;
 use std::path::{Path, PathBuf};
 
 /// A module implementing XCursor file parsing.
 pub mod parser;
 
-/// This function returns the list of paths where the themes have to
-/// be searched, according to the XDG Icon Theme specification.
-///
-/// # Panics
-///
-/// If the $HOME environment variable is not set,
-/// or if its value contains the NUL character
+/// Get the list of paths where the themes have to be searched,
+/// according to the XDG Icon Theme specification, respecting `XCURSOR_PATH` env
+/// variable, in case it was set.
 pub fn theme_search_paths() -> Vec<PathBuf> {
-    let mut res: Vec<PathBuf> = Vec::new();
+    // Handle the `XCURSOR_PATH` env variable, which takes over default search paths for cursor
+    // theme. Some systems rely are using non standard directory layout and primary using this
+    // env variable to perform cursor loading from a right places.
+    let xcursor_path = match env::var("XCURSOR_PATH") {
+        Ok(xcursor_path) => xcursor_path.split(':').map(PathBuf::from).collect(),
+        Err(_) => {
+            // Get icons locations from XDG data directories.
+            let get_icon_dirs = |xdg_path: String| -> Vec<PathBuf> {
+                xdg_path
+                    .split(':')
+                    .map(|entry| {
+                        let mut entry = PathBuf::from(entry);
+                        entry.push("icons");
+                        entry
+                    })
+                    .collect()
+            };
 
-    res.push(
-        [var("HOME").unwrap(), String::from(".icons")]
-            .iter()
-            .collect(),
-    );
+            let mut xdg_data_home = get_icon_dirs(
+                env::var("XDG_DATA_HOME").unwrap_or_else(|_| String::from("~/.local/share")),
+            );
 
-    for i in var("XDG_DATA_DIRS")
-        .unwrap_or_else(|_| "/usr/local/share/:/usr/share/".to_string())
-        .split(':')
-    {
-        res.push([i, "icons"].iter().collect());
-    }
+            let mut xdg_data_dirs = get_icon_dirs(
+                env::var("XDG_DATA_DIRS")
+                    .unwrap_or_else(|_| String::from("/usr/local/share:/usr/share")),
+            );
 
-    res.push(PathBuf::from("/usr/share/pixmaps"));
+            let mut xcursor_path =
+                Vec::with_capacity(xdg_data_dirs.len() + xdg_data_home.len() + 4);
 
-    res
+            // The order is following other XCursor loading libs, like libwayland-cursor.
+            xcursor_path.append(&mut xdg_data_home);
+            xcursor_path.push(PathBuf::from("~/.icons"));
+            xcursor_path.append(&mut xdg_data_dirs);
+            xcursor_path.push(PathBuf::from("/usr/share/pixmaps"));
+            xcursor_path.push(PathBuf::from("~/.cursors"));
+            xcursor_path.push(PathBuf::from("/usr/share/cursors/xorg-x11"));
+
+            xcursor_path
+        }
+    };
+
+    let homedir = env::var("HOME");
+
+    xcursor_path
+        .into_iter()
+        .filter_map(|dir| {
+            // Replace `~` in a path with `$HOME` for compatibility with other libs.
+            let mut expaned_dir = PathBuf::new();
+
+            for component in dir.iter() {
+                if component == "~" {
+                    let homedir = match homedir.as_ref() {
+                        Ok(homedir) => homedir.clone(),
+                        Err(_) => return None,
+                    };
+
+                    expaned_dir.push(homedir);
+                } else {
+                    expaned_dir.push(component);
+                }
+            }
+
+            Some(expaned_dir)
+        })
+        .collect()
 }
 
-/// A struct representing a cursor theme.
+/// A cursor theme.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CursorTheme {
     name: String,
@@ -44,11 +88,9 @@ pub struct CursorTheme {
 }
 
 impl CursorTheme {
-    /// This function searches for a theme with the given name
-    /// in the given search paths, and returns an XCursorTheme which
-    /// represents it.
-    /// If no inheritance can be determined, then the themes inherits
-    /// from the "default" theme.
+    /// Search for a theme with the given name in the given search paths,
+    /// and returns an XCursorTheme which represents it. If no inheritance
+    /// can be determined, then the themes inherits from the "default" theme.
     pub fn load(name: &str, search_paths: Vec<PathBuf>) -> Self {
         let mut dirs = Vec::new();
         let mut inherits = String::from("default");
@@ -78,7 +120,7 @@ impl CursorTheme {
         }
     }
 
-    /// Attempts to load an icon from the theme.
+    /// Try to load an icon from the theme.
     /// If the icon is not found within this theme's
     /// directories, then the function looks at the
     /// theme from which this theme is inherited.
@@ -101,7 +143,7 @@ impl CursorTheme {
     }
 }
 
-/// Loads the specified index.theme file, and returns a `Some` with
+/// Load the specified index.theme file, and returns a `Some` with
 /// the value of the `Inherits` key in it.
 /// Returns `None` if the file cannot be read for any reason,
 /// if the file cannot be parsed, or if the `Inherits` key is omitted.
@@ -124,15 +166,15 @@ fn parse_theme(content: &str) -> Option<String> {
             continue;
         }
 
-        // Skip the `Inherits` part and trim the leading whitespaces.
+        // Skip the `Inherits` part and trim the leading white spaces.
         let mut chars = line.get(PATTERN.len()..).unwrap().trim_start().chars();
 
-        // If the next character after leading whitespaces isn't `=` go the next line.
+        // If the next character after leading white spaces isn't `=` go the next line.
         if Some('=') != chars.next() {
             continue;
         }
 
-        // Skip Xcursor spaces/separators.
+        // Skip XCursor spaces/separators.
         let result: String = chars
             .skip_while(is_xcursor_space_or_separator)
             .take_while(|ch| !is_xcursor_space_or_separator(ch))
