@@ -2,10 +2,6 @@
 
 use std::env::var;
 use std::path::{Path, PathBuf};
-use std::fs::File;
-use std::io::Read;
-
-use regex::Regex;
 
 /// A module implementing XCursor file parsing.
 pub mod parser;
@@ -101,18 +97,84 @@ impl CursorTheme {
 
 }
 
-/// Loads the specified index.theme file, and returns a Some with
-/// the value of the Inherits key in it.
-/// Returns None if the file cannot be read for any reason,
+/// Loads the specified index.theme file, and returns a `Some` with
+/// the value of the `Inherits` key in it.
+/// Returns `None` if the file cannot be read for any reason,
 /// if the file cannot be parsed, or if the `Inherits` key is omitted.
 pub fn theme_inherits(file_path: &Path) -> Option<String> {
-    let mut content = String::new();
-    let mut file = File::open(file_path).ok()?;
-    file.read_to_string(&mut content).ok()?;
 
-    let re = Regex::new(r"Inherits\s*=\s*([a-zA-Z0-9-_]+)").unwrap();
-    let matches = re.captures_iter(&content).next()?;
+    let content = std::fs::read_to_string(file_path).ok()?;
 
-    Some(String::from(&matches[1]))
+    parse_theme(&content)
 }
 
+/// Parse the content of the `index.theme` and return the `Inherits` value.
+fn parse_theme(content: &str) -> Option<String> {
+    const PATTERN: &'static str = "Inherits";
+
+    let is_xcursor_space_or_separator =
+        |&ch: &char| -> bool { ch.is_whitespace() || ch == ';' || ch == ',' };
+
+    for line in content.lines() {
+        // Line should start with `Inherits`, otherwise go to the next line.
+        if !line.starts_with(PATTERN) {
+            continue;
+        }
+
+        // Skip the `Inherits` part and trim the leading whitespaces.
+        let mut chars = line.get(PATTERN.len()..).unwrap().trim_start().chars();
+
+        // If the next character after leading whitespaces isn't `=` go the next line.
+        if Some('=') != chars.next() {
+            continue;
+        }
+
+        // Skip Xcursor spaces/separators.
+        let result: String = chars
+            .skip_while(is_xcursor_space_or_separator)
+            .take_while(|ch| !is_xcursor_space_or_separator(ch))
+            .collect();
+
+        if !result.is_empty() {
+            return Some(result);
+        }
+    }
+
+    None
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::parse_theme;
+
+    #[test]
+    fn parse_inherits() {
+
+        let theme_name = String::from("XCURSOR_RS");
+
+        let theme = format!("Inherits={}", theme_name.clone());
+
+        assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
+
+        let theme = format!(" Inherits={}", theme_name.clone());
+
+        assert_eq!(parse_theme(&theme), None);
+
+        let theme = format!("[THEME name]\nInherits   = ,;\t\t{};;;;Tail\n\n", theme_name.clone());
+
+        assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
+
+        let theme = format!("Inherits;=;{}", theme_name.clone());
+
+        assert_eq!(parse_theme(&theme), None);
+
+        let theme = format!("Inherits = {}\n\nInherits=OtherTheme", theme_name.clone());
+
+        assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
+
+        let theme = format!("Inherits = ;;\nSome\tgarbage\nInherits={}", theme_name.clone());
+
+        assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
+    }
+}

@@ -16,5 +16,4 @@ include = [
 ]
 
 [dependencies]
-regex = "1"
 nom = "5"
