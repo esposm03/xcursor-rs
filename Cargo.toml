@@ -15,5 +15,7 @@ include = [
     "Cargo.toml",
 ]
 
-[dependencies]
-nom = "5"
+[dependencies.nom]
+version = "5.1.1"
+default-features = false
+features = ["std"]
