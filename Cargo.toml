@@ -16,6 +16,6 @@ include = [
 ]
 
 [dependencies.nom]
-version = "5.1.1"
+version = "5"
 default-features = false
 features = ["std"]
