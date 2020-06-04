@@ -1,21 +1,173 @@
 //! A crate to load cursor themes, and parse XCursor files.
 
-use std::collections::HashSet;
+//use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
 /// A module implementing XCursor file parsing.
 pub mod parser;
 
-/// A cursor theme.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct CursorTheme {
-    theme: CursorThemeIml,
-    /// Global search path for themes.
-    search_paths: Vec<PathBuf>,
+pub mod env_vars;
+
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum EnvVariables {
+    /// Prefer user's env variables over specified values.
+    Preferred,
+
+    /// Ignore the user's environment variables.
+    Ignored,
+
+    /// Prefer the specified values, only using env variables as fallback.
+    Fallback,
 }
 
-impl CursorTheme {
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum PixelFormat {
+    BGRA,
+    ARGB,
+}
+
+pub struct CursorThemeBuilder<'a> {
+    name: Option<&'a str>,
+    size: Option<u32>,
+
+    env_vars: Option<EnvVariables>,
+    pixel_format: Option<PixelFormat>,
+    paths: Option<&'a [&'a Path]>,
+}
+
+impl<'a> CursorThemeBuilder<'a> {
+    pub fn name(&mut self, name: &'a str) -> &mut Self {
+        self.name = Some(name);
+        self
+    }
+
+    pub fn size(&mut self, size: u32) -> &mut Self {
+        self.size = Some(size);
+        self
+    }
+
+    pub fn env_vars(&mut self, env_vars: EnvVariables) -> &mut Self {
+        self.env_vars = Some(env_vars);
+        self
+    }
+
+    pub fn pixel_format(&mut self, pixel_format: PixelFormat) -> &mut Self {
+        self.pixel_format = Some(pixel_format);
+        self
+    }
+
+    pub fn search_paths(&mut self, search_paths: &'a [&Path]) -> &mut Self {
+        self.paths = Some(search_paths);
+        self
+    }
+
+    pub fn load(self) -> CursorTheme<'a> {
+        let name = self.name.unwrap_or("default");
+        let size = self.size.unwrap_or(32);
+        let env_vars = self.env_vars.unwrap_or(EnvVariables::Preferred);
+        let pixel_format = self.pixel_format.unwrap_or(PixelFormat::ARGB);
+        let paths = theme_search_paths();
+
+        CursorTheme {
+            name,
+            size,
+            env_vars,
+            pixel_format,
+            paths,
+        }
+    }
+}
+
+/// A cursor theme.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct CursorTheme<'a> {
+    name: &'a str,
+    size: u32,
+
+    env_vars: EnvVariables,
+    pixel_format: PixelFormat,
+    paths: Vec<PathBuf>,
+}
+
+fn theme_search_paths() -> Vec<PathBuf> {
+    // Handle the `XCURSOR_PATH` env variable, which takes over default search paths for cursor
+    // theme. Some systems rely are using non standard directory layout and primary using this
+    // env variable to perform cursor loading from a right places.
+    let xcursor_path = match env::var("XCURSOR_PATH") {
+        Ok(xcursor_path) => xcursor_path.split(':').map(PathBuf::from).collect(),
+        Err(_) => {
+            // Get icons locations from XDG data directories.
+            let get_icon_dirs = |xdg_path: String| -> Vec<PathBuf> {
+                xdg_path
+                    .split(':')
+                    .map(|entry| {
+                        let mut entry = PathBuf::from(entry);
+                        entry.push("icons");
+                        entry
+                    })
+                    .collect()
+            };
+
+            let mut xdg_data_home = get_icon_dirs(
+                env::var("XDG_DATA_HOME").unwrap_or_else(|_| String::from("~/.local/share")),
+            );
+
+            let mut xdg_data_dirs = get_icon_dirs(
+                env::var("XDG_DATA_DIRS").unwrap_or(String::from("/usr/local/share:/usr/share")),
+            );
+
+            let mut xcursor_path =
+                Vec::with_capacity(xdg_data_dirs.len() + xdg_data_home.len() + 4);
+
+            // The order is following other XCursor loading libs, like libwayland-cursor.
+            xcursor_path.append(&mut xdg_data_home);
+            xcursor_path.push(PathBuf::from("~/.icons"));
+            xcursor_path.append(&mut xdg_data_dirs);
+            xcursor_path.push(PathBuf::from("/usr/share/pixmaps"));
+            xcursor_path.push(PathBuf::from("~/.cursors"));
+            xcursor_path.push(PathBuf::from("/usr/share/cursors/xorg-x11"));
+
+            xcursor_path
+        }
+    };
+
+    let homedir = env::var("HOME");
+
+    xcursor_path
+        .into_iter()
+        .filter_map(|dir| {
+            // Replace `~` in a path with `$HOME` for compatibility with other libs.
+            let mut expaned_dir = PathBuf::new();
+
+            for component in &dir {
+                if component == "~" {
+                    let homedir = homedir.as_ref().ok()?.clone();
+                    expaned_dir.push(homedir);
+                } else {
+                    expaned_dir.push(component);
+                }
+            }
+
+            Some(expaned_dir)
+        })
+        .collect()
+}
+
+/*
+
+impl<'a> CursorTheme<'a> {
+
+    pub fn new() -> CursorThemeBuilder<'a> {
+        CursorThemeBuilder {
+            name: None,
+            size: None,
+            env_vars: None,
+            pixel_format: None,
+            paths: None,
+        }
+    }
+
     /// Search for a theme with the given name in the given search paths,
     /// and returns an XCursorTheme which represents it. If no inheritance
     /// can be determined, then the themes inherits from the "default" theme.
@@ -128,74 +280,7 @@ impl CursorThemeIml {
 /// Get the list of paths where the themes have to be searched,
 /// according to the XDG Icon Theme specification, respecting `XCURSOR_PATH` env
 /// variable, in case it was set.
-fn theme_search_paths() -> Vec<PathBuf> {
-    // Handle the `XCURSOR_PATH` env variable, which takes over default search paths for cursor
-    // theme. Some systems rely are using non standard directory layout and primary using this
-    // env variable to perform cursor loading from a right places.
-    let xcursor_path = match env::var("XCURSOR_PATH") {
-        Ok(xcursor_path) => xcursor_path.split(':').map(PathBuf::from).collect(),
-        Err(_) => {
-            // Get icons locations from XDG data directories.
-            let get_icon_dirs = |xdg_path: String| -> Vec<PathBuf> {
-                xdg_path
-                    .split(':')
-                    .map(|entry| {
-                        let mut entry = PathBuf::from(entry);
-                        entry.push("icons");
-                        entry
-                    })
-                    .collect()
-            };
 
-            let mut xdg_data_home = get_icon_dirs(
-                env::var("XDG_DATA_HOME").unwrap_or_else(|_| String::from("~/.local/share")),
-            );
-
-            let mut xdg_data_dirs = get_icon_dirs(
-                env::var("XDG_DATA_DIRS")
-                    .unwrap_or_else(|_| String::from("/usr/local/share:/usr/share")),
-            );
-
-            let mut xcursor_path =
-                Vec::with_capacity(xdg_data_dirs.len() + xdg_data_home.len() + 4);
-
-            // The order is following other XCursor loading libs, like libwayland-cursor.
-            xcursor_path.append(&mut xdg_data_home);
-            xcursor_path.push(PathBuf::from("~/.icons"));
-            xcursor_path.append(&mut xdg_data_dirs);
-            xcursor_path.push(PathBuf::from("/usr/share/pixmaps"));
-            xcursor_path.push(PathBuf::from("~/.cursors"));
-            xcursor_path.push(PathBuf::from("/usr/share/cursors/xorg-x11"));
-
-            xcursor_path
-        }
-    };
-
-    let homedir = env::var("HOME");
-
-    xcursor_path
-        .into_iter()
-        .filter_map(|dir| {
-            // Replace `~` in a path with `$HOME` for compatibility with other libs.
-            let mut expaned_dir = PathBuf::new();
-
-            for component in dir.iter() {
-                if component == "~" {
-                    let homedir = match homedir.as_ref() {
-                        Ok(homedir) => homedir.clone(),
-                        Err(_) => return None,
-                    };
-
-                    expaned_dir.push(homedir);
-                } else {
-                    expaned_dir.push(component);
-                }
-            }
-
-            Some(expaned_dir)
-        })
-        .collect()
-}
 
 /// Load the specified index.theme file, and returns a `Some` with
 /// the value of the `Inherits` key in it.
@@ -281,3 +366,4 @@ mod tests {
         assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
     }
 }
+*/
