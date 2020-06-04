@@ -7,13 +7,18 @@ pub fn substitute_variable(in_str: &str, name: &str) -> Vec<String> {
 
 	for current_segment in env::var(name).unwrap_or(String::new()).split(':') {
 		let context = |actual: &str| {
-			match name == actual {
-				true => Some(current_segment),
-				false => None,
+			if name == actual {
+				Some(current_segment)
+			} else {
+				None
 			}
 		};
 
-		let substituted = String::from(shellexpand::full_with_context_no_errors(in_str, || env::var("HOME").ok(), context));
+		let substituted = String::from(shellexpand::full_with_context_no_errors(
+			in_str,
+			|| env::var("HOME").ok(),
+			context,
+		));
 		vec.push(substituted);
 	}
 
@@ -38,7 +43,10 @@ mod tests {
 	fn rand_test() {
 		std::env::set_var("XDG_DATA_DIRS", "/usr/share:/usr/local/share");
 		std::env::set_var("XDG_DATA_DIR", "/hal:/vol");
-		let mut vec = vec!["world$XDG_DATA_DIRS/pwoe$XDG_DATA_DIR".to_owned(), "hello$XDG_DATA_DIRS-adw/pwoe$XDG_DATA_DIR".to_owned()];
+		let mut vec = vec![
+			"world$XDG_DATA_DIRS/pwoe$XDG_DATA_DIR".to_owned(),
+			"hello$XDG_DATA_DIRS-adw/pwoe$XDG_DATA_DIR".to_owned(),
+		];
 		super::substitute_variable(&mut vec, "XDG_DATA_DIRS");
 		panic!();
 	}
