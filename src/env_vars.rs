@@ -87,26 +87,34 @@ mod tests {
 	use super::{find_first_variable, substitute_single_variable, substitute_variables};
 	use std::env;
 
+	fn test_common() {
+		println!("Note: since the test uses environment variables, running multiple tests in parallel causes a race. Try to re-run the tests with `cargo test -- --test-threads 1`");
+	}
+
 	#[test]
 	fn test_first_variable() {
+		test_common();
 		let string = "hello$VAR_1/world$VAR_2";
 		assert_eq!(Some("VAR_1"), find_first_variable(string));
 	}
 
 	#[test]
 	fn test_first_variable_at_end() {
+		test_common();
 		let string = "hello/world/$VAR_1";
 		assert_eq!(Some("VAR_1"), find_first_variable(string));
 	}
 
 	#[test]
 	fn test_first_variable_no_variable() {
+		test_common();
 		let string = "hello/world";
 		assert_eq!(None, find_first_variable(string));
 	}
 
 	#[test]
 	fn test_substitute_single_variable() {
+		test_common();
 		let string = "$XDG_CONFIG_HOME/xcursor-rs/";
 
 		env::set_var("HOME", "/home/alice");
@@ -120,6 +128,7 @@ mod tests {
 
 	#[test]
 	fn test_substitute_single_variable_not_set() {
+		test_common();
 		let string = "$XDG_CONFIG_HOME/xcursor-rs/";
 
 		env::remove_var("XDG_CONFIG_HOME");
@@ -132,6 +141,7 @@ mod tests {
 
 	#[test]
 	fn test_substitute_single_variable_multiple_vars() {
+		test_common();
 		let string = "$XDG_CONFIG_HOME/hello/$WORLD";
 
 		env::set_var("HOME", "/home/alice");
@@ -145,6 +155,7 @@ mod tests {
 
 	#[test]
 	fn test_substitute_variables_no_multiple_segments() {
+		test_common();
 		let string = "$XDG_CONFIG_HOME/hello/$XDG_DATA_HOME";
 
 		env::set_var("HOME", "/home/alice");
@@ -159,6 +170,7 @@ mod tests {
 
 	#[test]
 	fn test_substitute_variables_multiple_segments() {
+		test_common();
 		let string = "$XDG_DATA_DIRS/hello$XDG_CONFIG_DIRS";
 
 		env::set_var("XDG_CONFIG_DIRS", "/etc/xdg:/etc/more_config");
@@ -183,6 +195,7 @@ mod tests {
 
 	#[test]
 	fn test_substitute_variables_multiple_strings() {
+		test_common();
 		let strings = ["$XDG_DATA_DIRS/hello/", "$XDG_CONFIG_DIRS/hello/"];
 
 		env::set_var("XDG_CONFIG_DIRS", "/etc/xdg:/etc/more_config");
