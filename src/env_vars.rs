@@ -1,6 +1,32 @@
 use std::env;
 
-type Range = std::ops::Range<usize>;
+pub fn substitute_variables(strings: &[&str]) -> Vec<String> {
+	let owned_strings = strings.iter().map(|el| String::from(*el)).collect();
+	let mut vec = substitute_variables_pass(&owned_strings);
+
+	loop {
+		let old_vec = vec.clone();
+		vec = substitute_variables_pass(&old_vec);
+		if old_vec == vec {
+			break;
+		}
+	}
+
+	vec
+}
+
+fn substitute_variables_pass(strings: &Vec<String>) -> Vec<String> {
+	let mut vec: Vec<String> = Vec::with_capacity(strings.len());
+
+	for i in strings {
+		match find_first_variable(i) {
+			None => vec.push(i.to_string()),
+			Some(var) => vec.extend_from_slice(&substitute_single_variable(i, var)),
+		}
+	}
+
+	vec
+}
 
 pub fn substitute_single_variable(in_str: &str, name: &str) -> Vec<String> {
 	let mut vec = Vec::new();
@@ -42,7 +68,7 @@ pub fn find_first_variable(input: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-	use super::{find_first_variable, substitute_single_variable};
+	use super::{find_first_variable, substitute_single_variable, substitute_variables};
 	use std::env;
 
 	#[test]
@@ -79,6 +105,7 @@ mod tests {
 	#[test]
 	fn test_substitute_single_variable_not_set() {
 		let string = "$XDG_CONFIG_HOME/xcursor-rs/";
+
 		env::remove_var("XDG_CONFIG_HOME");
 
 		assert_eq!(
@@ -91,9 +118,73 @@ mod tests {
 	fn test_substitute_single_variable_multiple_vars() {
 		let string = "$XDG_CONFIG_HOME/hello/$WORLD";
 
+		env::set_var("HOME", "/home/alice");
+		env::set_var("XDG_CONFIG_HOME", "~/.config");
+
 		assert_eq!(
 			substitute_single_variable(string, "XDG_CONFIG_HOME")[0],
 			"/home/alice/.config/hello/$WORLD"
 		);
+	}
+
+	#[test]
+	fn test_substitute_variables_no_multiple_segments() {
+		let string = "$XDG_CONFIG_HOME/hello/$XDG_DATA_HOME";
+
+		env::set_var("HOME", "/home/alice");
+		env::set_var("XDG_CONFIG_HOME", "~/.config");
+		env::set_var("XDG_DATA_HOME", ".local/share");
+
+		assert_eq!(
+			substitute_variables(&[string])[0],
+			"/home/alice/.config/hello/.local/share",
+		)
+	}
+
+	#[test]
+	fn test_substitute_variables_multiple_segments() {
+		let string = "$XDG_DATA_DIRS/hello$XDG_CONFIG_DIRS";
+
+		env::set_var("XDG_CONFIG_DIRS", "/etc/xdg:/etc/more_config");
+		env::set_var("XDG_DATA_DIRS", "/usr/local/share:/usr/share");
+
+		let mut expected = Vec::from(
+			&[
+				"/usr/local/share/hello/etc/xdg",
+				"/usr/share/hello/etc/xdg",
+				"/usr/share/hello/etc/more_config",
+				"/usr/local/share/hello/etc/more_config",
+			][..],
+		);
+		let mut got = substitute_variables(&[string]);
+
+		// We don't care about ordering here.
+		expected.sort();
+		got.sort();
+
+		assert_eq!(expected, got)
+	}
+
+	#[test]
+	fn test_substitute_variables_multiple_strings() {
+		let strings = ["$XDG_DATA_DIRS/hello/", "$XDG_CONFIG_DIRS/hello/"];
+
+		env::set_var("XDG_CONFIG_DIRS", "/etc/xdg:/etc/more_config");
+		env::set_var("XDG_DATA_DIRS", "/usr/local/share:/usr/share");
+
+		let mut expected = Vec::from(
+			&[
+				"/usr/local/share/hello/",
+				"/usr/share/hello/",
+				"/etc/xdg/hello/",
+				"/etc/more_config/hello/",
+			][..],
+		);
+		let mut got = substitute_variables(&strings);
+
+		expected.sort();
+		got.sort();
+
+		assert_eq!(expected, got);
 	}
 }
