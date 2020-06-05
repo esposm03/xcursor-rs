@@ -1,5 +1,13 @@
 use std::env;
 
+/// Substitute all the variables in the provided strings.
+///
+/// Given a slice of `str`s, all variables will be substituted with
+/// their value. (Note that the syntax `${var_name_here}` is not supported)
+/// This function will also handle PATH-like colon-separated segments in variable values.
+///
+/// Note that this function allocates quite a bit, but it is ideally only called once
+/// (when a cursor theme is first loaded).
 pub fn substitute_variables(strings: &[&str]) -> Vec<String> {
 	let owned_strings = strings.iter().map(|el| String::from(*el)).collect();
 	let mut vec = substitute_variables_pass(&owned_strings);
@@ -15,6 +23,7 @@ pub fn substitute_variables(strings: &[&str]) -> Vec<String> {
 	vec
 }
 
+/// Helper function for `substitute_variables`, to split off logic.
 fn substitute_variables_pass(strings: &Vec<String>) -> Vec<String> {
 	let mut vec: Vec<String> = Vec::with_capacity(strings.len());
 
@@ -28,7 +37,14 @@ fn substitute_variables_pass(strings: &Vec<String>) -> Vec<String> {
 	vec
 }
 
-pub fn substitute_single_variable(in_str: &str, name: &str) -> Vec<String> {
+/// Substitutes the specified variable in the given string.
+///
+/// If the variable can't be retrieved, then it isn't substituted.
+///
+/// If the variable contains multiple colon-separated segments
+/// (akin to the unix PATH variable, or the XDG Base Directory ones),
+/// then multiple strings will be generated, one for each segment.
+fn substitute_single_variable(in_str: &str, name: &str) -> Vec<String> {
 	let mut vec = Vec::new();
 
 	let var = env::var(name);
@@ -56,7 +72,7 @@ pub fn substitute_single_variable(in_str: &str, name: &str) -> Vec<String> {
 }
 
 /// Find the first variable in `input`, and return its name.
-pub fn find_first_variable(input: &str) -> Option<&str> {
+fn find_first_variable(input: &str) -> Option<&str> {
 	let start = input.find('$')?;
 	let trimmed: &str = &input[start + 1..];
 	let end = trimmed
