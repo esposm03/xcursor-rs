@@ -13,6 +13,8 @@ readme = "README.md"
 include = [
     "**/*.rs",
     "Cargo.toml",
+    "LICENSE",
+    "README.md",
 ]
 
 [dependencies.nom]
