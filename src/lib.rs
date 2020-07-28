@@ -1,8 +1,10 @@
+#![feature(inner_deref)]
 //! A crate to load cursor themes, and parse XCursor files.
 
 //use std::collections::HashSet;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::str::FromStr;
 
 /// A module implementing XCursor file parsing.
 pub mod parser;
@@ -27,13 +29,14 @@ pub enum PixelFormat {
 	ARGB,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CursorThemeBuilder<'a> {
 	name: Option<&'a str>,
 	size: Option<u32>,
 
 	env_vars: Option<EnvVariables>,
 	pixel_format: Option<PixelFormat>,
-	paths: Option<&'a [&'a Path]>,
+	paths: Option<&'a [&'a str]>,
 }
 
 impl<'a> CursorThemeBuilder<'a> {
@@ -57,40 +60,77 @@ impl<'a> CursorThemeBuilder<'a> {
 		self
 	}
 
-	pub fn search_paths(&mut self, search_paths: &'a [&Path]) -> &mut Self {
+	pub fn search_paths(&mut self, search_paths: &'a [&'a str]) -> &mut Self {
 		self.paths = Some(search_paths);
 		self
 	}
 
-	pub fn load(self) -> CursorTheme<'a> {
-		let name = self.name.unwrap_or("default");
-		let size = self.size.unwrap_or(32);
-		let env_vars = self.env_vars.unwrap_or(EnvVariables::Preferred);
+	/// Construct a CursorTheme, consuming this builder.
+	pub fn load(self) -> CursorTheme {
+		let name_var = env::var("XCURSOR_THEME").as_deref();
+
 		let pixel_format = self.pixel_format.unwrap_or(PixelFormat::ARGB);
-		let paths = theme_search_paths();
+		let paths: &[&str];
+		let name: &str;
+		let size: u32;
+
+		let use_env_vars = self.env_vars.unwrap_or(EnvVariables::Preferred);
+		match use_env_vars {
+			// We first try env variables, then values, then defaults.
+			EnvVariables::Preferred => {
+				name = name_var.unwrap_or(self.name.unwrap_or("default"));
+
+				let given_size: u32 = self.size.unwrap_or(32);
+				size = match env::var("XCURSOR_SIZE") {
+					Ok(ref value) => u32::from_str(value).unwrap_or(given_size),
+					Err(_) => given_size,
+				};
+			}
+
+			// We first try values, then env variables, then defaults.
+			EnvVariables::Fallback => {
+				name = self.name.unwrap_or(name_var.unwrap_or("default"));
+				size = self.size.unwrap_or(match env::var("XCURSOR_SIZE") {
+					Ok(ref value) => u32::from_str(value).unwrap_or(32),
+					Err(_) => 32,
+				});
+			}
+
+			// We first try values, then defaults.
+			EnvVariables::Ignored => {
+				name = self.name.unwrap_or("default");
+				size = self.size.unwrap_or(32);
+				paths = self.paths.unwrap_or(&DEFAULT_SEARCH_PATHS[..]);
+			}
+		};
 
 		CursorTheme {
-			name,
+			name: String::from(name),
 			size,
-			env_vars,
 			pixel_format,
-			paths,
+			paths: paths.iter().map(PathBuf::from).collect(),
 		}
 	}
 }
 
 /// A cursor theme.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct CursorTheme<'a> {
-	name: &'a str,
+pub struct CursorTheme {
+	name: String,
 	size: u32,
 
-	env_vars: EnvVariables,
 	pixel_format: PixelFormat,
 	paths: Vec<PathBuf>,
 }
 
-fn theme_search_paths() -> Vec<PathBuf> {
+const DEFAULT_SEARCH_PATHS: [&str; 4] = [
+	"~/.icons",
+	"$XDG_DATA_HOME/icons",
+	"$XDG_DATA_DIRS/icons",
+	"/usr/local/pixmaps",
+];
+
+/* fn theme_search_paths() -> Vec<String> {
 	// Handle the `XCURSOR_PATH` env variable, which takes over default search paths for cursor
 	// theme. Some systems rely are using non standard directory layout and primary using this
 	// env variable to perform cursor loading from a right places.
@@ -100,13 +140,13 @@ fn theme_search_paths() -> Vec<PathBuf> {
 			// Get icons locations from XDG data directories.
 			let get_icon_dirs = |xdg_path: String| -> Vec<PathBuf> {
 				xdg_path
-					.split(':')
-					.map(|entry| {
-						let mut entry = PathBuf::from(entry);
-						entry.push("icons");
-						entry
-					})
-					.collect()
+				.split(':')
+				.map(|entry| {
+					let mut entry = PathBuf::from(entry);
+					entry.push("icons");
+					entry
+				})
+				.collect()
 			};
 
 			let mut xdg_data_home = get_icon_dirs(
@@ -118,7 +158,7 @@ fn theme_search_paths() -> Vec<PathBuf> {
 			);
 
 			let mut xcursor_path =
-				Vec::with_capacity(xdg_data_dirs.len() + xdg_data_home.len() + 4);
+			Vec::with_capacity(xdg_data_dirs.len() + xdg_data_home.len() + 4);
 
 			// The order is following other XCursor loading libs, like libwayland-cursor.
 			xcursor_path.append(&mut xdg_data_home);
@@ -135,24 +175,24 @@ fn theme_search_paths() -> Vec<PathBuf> {
 	let homedir = env::var("HOME");
 
 	xcursor_path
-		.into_iter()
-		.filter_map(|dir| {
-			// Replace `~` in a path with `$HOME` for compatibility with other libs.
-			let mut expaned_dir = PathBuf::new();
+	.into_iter()
+	.filter_map(|dir| {
+		// Replace `~` in a path with `$HOME` for compatibility with other libs.
+		let mut expaned_dir = PathBuf::new();
 
-			for component in &dir {
-				if component == "~" {
-					let homedir = homedir.as_ref().ok()?.clone();
-					expaned_dir.push(homedir);
-				} else {
-					expaned_dir.push(component);
-				}
+		for component in &dir {
+			if component == "~" {
+				let homedir = homedir.as_ref().ok()?.clone();
+				expaned_dir.push(homedir);
+			} else {
+				expaned_dir.push(component);
 			}
+		}
 
-			Some(expaned_dir)
-		})
-		.collect()
-}
+		Some(expaned_dir)
+	})
+	.collect()
+} */
 
 /*
 
@@ -190,7 +230,7 @@ impl<'a> CursorTheme<'a> {
 		let mut walked_themes = HashSet::new();
 
 		self.theme
-			.load_icon(icon_name, &self.search_paths, &mut walked_themes)
+		.load_icon(icon_name, &self.search_paths, &mut walked_themes)
 	}
 }
 
@@ -297,7 +337,7 @@ fn parse_theme(content: &str) -> Option<String> {
 	const PATTERN: &str = "Inherits";
 
 	let is_xcursor_space_or_separator =
-		|&ch: &char| -> bool { ch.is_whitespace() || ch == ';' || ch == ',' };
+	|&ch: &char| -> bool { ch.is_whitespace() || ch == ';' || ch == ',' };
 
 	for line in content.lines() {
 		// Line should start with `Inherits`, otherwise go to the next line.
@@ -315,9 +355,9 @@ fn parse_theme(content: &str) -> Option<String> {
 
 		// Skip XCursor spaces/separators.
 		let result: String = chars
-			.skip_while(is_xcursor_space_or_separator)
-			.take_while(|ch| !is_xcursor_space_or_separator(ch))
-			.collect();
+		.skip_while(is_xcursor_space_or_separator)
+		.take_while(|ch| !is_xcursor_space_or_separator(ch))
+		.collect();
 
 		if !result.is_empty() {
 			return Some(result);

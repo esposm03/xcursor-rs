@@ -47,13 +47,22 @@ fn substitute_variables_pass(strings: &Vec<String>) -> Vec<String> {
 fn substitute_single_variable(in_str: &str, name: &str) -> Vec<String> {
 	let mut vec = Vec::new();
 
-	let var = env::var(name);
-	if var.is_err() {
-		vec.push(String::from(in_str));
-		return vec;
-	}
+	let var_value = match name {
+		"XDG_DATA_DIRS" => env::var(name).unwrap_or(String::from("/usr/local/share:/usr/share")),
+		"XDG_CONFIG_DIRS" => env::var(name).unwrap_or(String::from("/etc/xdg")),
+		"XDG_CONFIG_HOME" => env::var(name).unwrap_or(String::from("$HOME/.config")),
+		"XDG_CACHE_HOME" => env::var(name).unwrap_or(String::from("$HOME/.cache")),
+		"XDG_DATA_HOME" => env::var(name).unwrap_or(String::from("$HOME/.local/share")),
+		_ => {
+			if env::var(name).is_err() {
+				vec.push(String::from(in_str));
+				return vec;
+			}
+			env::var(name).unwrap()
+		}
+	};
 
-	for current_segment in var.unwrap().split(':') {
+	for current_segment in var_value.split(':') {
 		let context = |actual: &str| {
 			if name == actual {
 				Some(current_segment)
