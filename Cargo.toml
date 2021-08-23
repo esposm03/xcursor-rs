@@ -18,5 +18,5 @@ include = [
 ]
 
 [dependencies.nom]
-version = "6.0"
+version = "7.0"
 default-features = false
