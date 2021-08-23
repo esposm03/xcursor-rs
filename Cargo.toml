@@ -17,6 +17,5 @@ include = [
     "README.md",
 ]
 
-[dependencies.nom]
-version = "6.0"
-default-features = false
+[dependencies]
+nom = "7.0"
