@@ -113,7 +113,7 @@ impl CursorThemeIml {
                 continue;
             }
 
-            let inherited_theme = CursorThemeIml::load(inherits, &search_paths);
+            let inherited_theme = CursorThemeIml::load(inherits, search_paths);
 
             match inherited_theme.load_icon(icon_name, search_paths, walked_themes) {
                 Some(icon_path) => return Some(icon_path),

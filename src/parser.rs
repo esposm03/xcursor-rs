@@ -8,7 +8,7 @@ use nom::number::complete as number;
 use nom::IResult;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-struct TOC {
+struct Toc {
     toctype: u32,
     subtype: u32,
     pos: u32,
@@ -66,14 +66,14 @@ fn parse_header(i: &[u8]) -> IResult<&[u8], u32> {
     Ok((i, ntoc))
 }
 
-fn parse_toc(i: &[u8]) -> IResult<&[u8], TOC> {
+fn parse_toc(i: &[u8]) -> IResult<&[u8], Toc> {
     let (i, toctype) = number::le_u32(i)?; // Type
     let (i, subtype) = number::le_u32(i)?; // Subtype
     let (i, pos) = number::le_u32(i)?; // Position
 
     Ok((
         i,
-        TOC {
+        Toc {
             toctype,
             subtype,
             pos,
@@ -154,7 +154,7 @@ pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_header, parse_toc, rgba_to_argb, TOC};
+    use super::{parse_header, parse_toc, rgba_to_argb, Toc};
 
     // A sample (and simple) XCursor file generated with xcursorgen.
     // Contains a single 4x4 image.
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_parse_toc() {
-        let toc = TOC {
+        let toc = Toc {
             toctype: 0xfffd0002,
             subtype: 4,
             pos: 0x1c,
