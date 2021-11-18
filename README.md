@@ -5,8 +5,3 @@
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A library to load XCursor themes, and parse XCursor files.
-
-
-# Possible issues (to be tested)
-- Endianness of file is not completely clear (it's either little or
-native, the spec doesn't say anything about it)
