@@ -92,6 +92,10 @@ impl CursorThemeIml {
             let mut icon_path = data.0.clone();
             icon_path.push("cursors");
             icon_path.push(icon_name);
+            icon_path = match icon_path.canonicalize() {
+                Ok(path) => path,
+                Err(_) => continue,
+            };
             if icon_path.is_file() {
                 return Some(icon_path);
             }
