@@ -57,7 +57,7 @@ impl CursorThemeIml {
         let mut data = Vec::new();
 
         // Find directories where this theme is presented.
-        for mut path in search_paths.to_owned() {
+        for mut path in search_paths.iter().cloned() {
             path.push(name);
             if path.is_dir() {
                 let data_dir = path.clone();
