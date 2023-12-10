@@ -16,6 +16,3 @@ include = [
     "LICENSE",
     "README.md",
 ]
-
-[dependencies]
-nom = "7.0"

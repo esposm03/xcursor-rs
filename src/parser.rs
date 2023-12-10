@@ -1,11 +1,9 @@
 use std::{
+    convert::TryInto,
     fmt,
     fmt::{Debug, Formatter},
+    mem::size_of,
 };
-
-use nom::bytes::complete as bytes;
-use nom::number::complete as number;
-use nom::IResult;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct Toc {
@@ -57,21 +55,21 @@ impl std::fmt::Display for Image {
     }
 }
 
-fn parse_header(i: &[u8]) -> IResult<&[u8], u32> {
-    let (i, _) = bytes::tag("Xcur")(i)?;
-    let (i, _) = number::le_u32(i)?;
-    let (i, _) = number::le_u32(i)?;
-    let (i, ntoc) = number::le_u32(i)?;
+fn parse_header(mut i: Stream<'_>) -> Option<(Stream<'_>, u32)> {
+    i.tag(b"Xcur")?;
+    i.u32_le()?;
+    i.u32_le()?;
+    let ntoc = i.u32_le()?;
 
-    Ok((i, ntoc))
+    Some((i, ntoc))
 }
 
-fn parse_toc(i: &[u8]) -> IResult<&[u8], Toc> {
-    let (i, toctype) = number::le_u32(i)?; // Type
-    let (i, subtype) = number::le_u32(i)?; // Subtype
-    let (i, pos) = number::le_u32(i)?; // Position
+fn parse_toc(mut i: Stream<'_>) -> Option<(Stream<'_>, Toc)> {
+    let toctype = i.u32_le()?; // Type
+    let subtype = i.u32_le()?; // Subtype
+    let pos = i.u32_le()?; // Position
 
-    Ok((
+    Some((
         i,
         Toc {
             toctype,
@@ -81,23 +79,23 @@ fn parse_toc(i: &[u8]) -> IResult<&[u8], Toc> {
     ))
 }
 
-fn parse_img(i: &[u8]) -> IResult<&[u8], Image> {
-    let (i, _) = bytes::tag([0x24, 0x00, 0x00, 0x00])(i)?; // Header size
-    let (i, _) = bytes::tag([0x02, 0x00, 0xfd, 0xff])(i)?; // Type
-    let (i, size) = number::le_u32(i)?;
-    let (i, _) = bytes::tag([0x01, 0x00, 0x00, 0x00])(i)?; // Image version (1)
-    let (i, width) = number::le_u32(i)?;
-    let (i, height) = number::le_u32(i)?;
-    let (i, xhot) = number::le_u32(i)?;
-    let (i, yhot) = number::le_u32(i)?;
-    let (i, delay) = number::le_u32(i)?;
+fn parse_img(mut i: Stream<'_>) -> Option<(Stream<'_>, Image)> {
+    i.tag(&[0x24, 0x00, 0x00, 0x00])?; // Header size
+    i.tag(&[0x02, 0x00, 0xfd, 0xff])?; // Type
+    let size = i.u32_le()?;
+    i.tag(&[0x01, 0x00, 0x00, 0x00])?; // Image version (1)
+    let width = i.u32_le()?;
+    let height = i.u32_le()?;
+    let xhot = i.u32_le()?;
+    let yhot = i.u32_le()?;
+    let delay = i.u32_le()?;
 
     let img_length: usize = (4 * width * height) as usize;
-    let (i, pixels_slice) = bytes::take(img_length)(i)?;
+    let pixels_slice = i.take_bytes(img_length)?;
     let pixels_argb = rgba_to_argb(pixels_slice);
     let pixels_rgba = Vec::from(pixels_slice);
 
-    Ok((
+    Some((
         i,
         Image {
             size,
@@ -135,21 +133,60 @@ fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
 
 /// Parse an XCursor file into its images.
 pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
-    let (mut i, ntoc) = parse_header(content).ok()?;
+    let (mut i, ntoc) = parse_header(content)?;
     let mut imgs = Vec::with_capacity(ntoc as usize);
 
     for _ in 0..ntoc {
-        let (j, toc) = parse_toc(i).ok()?;
+        let (j, toc) = parse_toc(i)?;
         i = j;
 
         if toc.toctype == 0xfffd_0002 {
             let index = toc.pos as usize..;
-            let (_, img) = parse_img(&content[index]).ok()?;
+            let (_, img) = parse_img(&content[index])?;
             imgs.push(img);
         }
     }
 
     Some(imgs)
+}
+
+type Stream<'a> = &'a [u8];
+
+trait StreamExt<'a>: 'a {
+    /// Parse a series of bytes, returning `None` if it doesn't exist.
+    fn tag(&mut self, tag: &[u8]) -> Option<()>;
+
+    /// Take a slice of bytes.
+    fn take_bytes(&mut self, len: usize) -> Option<&'a [u8]>;
+
+    /// Parse a 32-bit little endian number.
+    fn u32_le(&mut self) -> Option<u32>;
+}
+
+impl<'a> StreamExt<'a> for Stream<'a> {
+    fn tag(&mut self, tag: &[u8]) -> Option<()> {
+        if self.len() < tag.len() || self[..tag.len()] != *tag {
+            None
+        } else {
+            *self = &self[tag.len()..];
+            Some(())
+        }
+    }
+
+    fn take_bytes(&mut self, len: usize) -> Option<&'a [u8]> {
+        if self.len() < len {
+            None
+        } else {
+            let (value, tail) = self.split_at(len);
+            *self = tail;
+            Some(value)
+        }
+    }
+
+    fn u32_le(&mut self) -> Option<u32> {
+        self.take_bytes(size_of::<u32>())
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+    }
 }
 
 #[cfg(test)]
