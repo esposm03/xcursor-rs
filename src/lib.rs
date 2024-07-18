@@ -38,7 +38,22 @@ impl CursorTheme {
         let mut walked_themes = HashSet::new();
 
         self.theme
-            .load_icon(icon_name, &self.search_paths, &mut walked_themes)
+            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes)
+            .map(|(pathbuf, _)| pathbuf)
+    }
+
+    /// Try to load an icon from the theme, returning it with its inheritance
+    /// depth.
+    ///
+    /// If the icon is not found within this theme's directories, then the
+    /// function looks at the theme from which this theme is inherited. The
+    /// second element of the returned tuple indicates how many levels of
+    /// inheritance were traversed before the icon was found.
+    pub fn load_icon_with_depth(&self, icon_name: &str) -> Option<(PathBuf, usize)> {
+        let mut walked_themes = HashSet::new();
+
+        self.theme
+            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes)
     }
 }
 
@@ -82,18 +97,18 @@ impl CursorThemeIml {
     }
 
     /// The implementation of cursor icon loading.
-    fn load_icon(
+    fn load_icon_with_depth(
         &self,
         icon_name: &str,
         search_paths: &[PathBuf],
         walked_themes: &mut HashSet<String>,
-    ) -> Option<PathBuf> {
+    ) -> Option<(PathBuf, usize)> {
         for data in &self.data {
             let mut icon_path = data.0.clone();
             icon_path.push("cursors");
             icon_path.push(icon_name);
             if icon_path.is_file() {
-                return Some(icon_path);
+                return Some((icon_path, 0));
             }
         }
 
@@ -115,8 +130,8 @@ impl CursorThemeIml {
 
             let inherited_theme = CursorThemeIml::load(inherits, search_paths);
 
-            match inherited_theme.load_icon(icon_name, search_paths, walked_themes) {
-                Some(icon_path) => return Some(icon_path),
+            match inherited_theme.load_icon_with_depth(icon_name, search_paths, walked_themes) {
+                Some((icon_path, depth)) => return Some((icon_path, depth + 1)),
                 None => continue,
             }
         }
