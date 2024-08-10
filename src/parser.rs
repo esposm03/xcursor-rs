@@ -90,7 +90,7 @@ fn parse_img(mut i: Stream<'_>) -> Option<(Stream<'_>, Image)> {
     let yhot = i.u32_le()?;
     let delay = i.u32_le()?;
 
-    let img_length: usize = (4 * width * height) as usize;
+    let img_length: usize = width.checked_mul(height)?.checked_mul(4)? as usize;
     let pixels_slice = i.take_bytes(img_length)?;
     let pixels_argb = rgba_to_argb(pixels_slice);
     let pixels_rgba = Vec::from(pixels_slice);
@@ -191,7 +191,7 @@ impl<'a> StreamExt<'a> for Stream<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_header, parse_toc, rgba_to_argb, Toc};
+    use super::{parse_header, parse_img, parse_toc, rgba_to_argb, Toc};
 
     // A sample (and simple) XCursor file generated with xcursorgen.
     // Contains a single 4x4 image.
@@ -247,5 +247,21 @@ mod tests {
         let initial: &[u8] = &[];
 
         assert_eq!(initial, &rgba_to_argb(initial)[..]);
+    }
+
+    #[test]
+    fn test_image_size_overflow() {
+        let data = [
+            0x24, 0x00, 0x00, 0x00, // header size
+            0x02, 0x00, 0xfd, 0xff, // IMAGE_TYPE
+            0x04, 0x00, 0x00, 0x00, // size 4
+            0x01, 0x00, 0x00, 0x00, // version
+            0xff, 0xff, 0xff, 0xff, // width 2^32 - 1
+            0xff, 0xff, 0xff, 0xff, // height 2^32 - 1
+            0x00, 0x00, 0x00, 0x00, // x_hot 0
+            0x00, 0x00, 0x00, 0x00, // y_hot 0
+            0x00, 0x00, 0x00, 0x00, // delay 0
+        ];
+        assert_eq!(None, parse_img(&data));
     }
 }
