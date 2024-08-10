@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_parse_header() {
-        let mut cursor = Cursor::new(&FILE_CONTENTS);
+        let mut cursor = Cursor::new(&FILE_CONTENTS[..]);
         assert_eq!(parse_header(&mut cursor).unwrap(), (16, 1));
         assert_eq!(cursor.position(), 16);
     }
