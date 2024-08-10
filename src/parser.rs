@@ -55,13 +55,13 @@ impl std::fmt::Display for Image {
     }
 }
 
-fn parse_header(i: &mut impl Read) -> IoResult<u32> {
+fn parse_header(i: &mut impl Read) -> IoResult<(u32, u32)> {
     i.tag(b"Xcur")?;
-    i.u32_le()?;
-    i.u32_le()?;
+    let header = i.u32_le()?;
+    let _version = i.u32_le()?;
     let ntoc = i.u32_le()?;
 
-    Ok(ntoc)
+    Ok((header, ntoc))
 }
 
 fn parse_toc(i: &mut impl Read) -> IoResult<Toc> {
@@ -145,7 +145,8 @@ pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
 
 /// Parse an XCursor file into its images.
 pub fn parse_xcursor_stream<R: Read + Seek>(input: &mut R) -> IoResult<Vec<Image>> {
-    let ntoc = parse_header(input)?;
+    let (header, ntoc) = parse_header(input)?;
+    input.seek(SeekFrom::Start(header as u64))?;
 
     let mut img_indices = Vec::new();
     for _ in 0..ntoc {
@@ -180,7 +181,7 @@ impl<R: Read> StreamExt for R {
     fn tag(&mut self, tag: &[u8]) -> IoResult<()> {
         let mut data = vec![0; tag.len()];
         self.read_exact(&mut data)?;
-        if data != *tag {
+        if data != tag {
             Err(Error::new(ErrorKind::Other, "Tag mismatch"))
         } else {
             Ok(())
@@ -195,7 +196,7 @@ impl<R: Read> StreamExt for R {
 
     fn u32_le(&mut self) -> IoResult<u32> {
         self.take_bytes(size_of::<u32>())
-            .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+            .map(|bytes| u32::from_le_bytes(bytes.as_slice().try_into().unwrap()))
     }
 }
 
@@ -221,7 +222,7 @@ mod tests {
     #[test]
     fn test_parse_header() {
         let mut cursor = Cursor::new(&FILE_CONTENTS);
-        assert_eq!(parse_header(&mut cursor).unwrap(), 1);
+        assert_eq!(parse_header(&mut cursor).unwrap(), (16, 1));
         assert_eq!(cursor.position(), 16);
     }
 
