@@ -1,8 +1,7 @@
 use std::{
     convert::TryInto,
-    fmt,
-    fmt::{Debug, Formatter},
-    io::{Cursor, Read, Result as IoResult, Seek, SeekFrom},
+    fmt::{self, Debug, Formatter},
+    io::{Cursor, Error, ErrorKind, Read, Result as IoResult, Seek, SeekFrom},
     mem::size_of,
 };
 
@@ -88,6 +87,20 @@ fn parse_img(i: &mut impl Read) -> IoResult<Image> {
     let yhot = i.u32_le()?;
     let delay = i.u32_le()?;
 
+    // Check image is well-formed. Taken from https://gitlab.freedesktop.org/xorg/lib/libxcursor/-/blob/09617bcc9a0f1b5072212da5f8fede92ab85d157/src/file.c#L456-463
+    if width > 0x7fff || height > 0x7fff {
+        return Err(Error::new(ErrorKind::Other, "Image too large"));
+    }
+    if width == 0 || height == 0 {
+        return Err(Error::new(
+            ErrorKind::Other,
+            "Image with zero width or height",
+        ));
+    }
+    if xhot > width || yhot > height {
+        return Err(Error::new(ErrorKind::Other, "Hotspot outside image"));
+    }
+
     let img_length: usize = (4 * width * height) as usize;
     let pixels_rgba = i.take_bytes(img_length)?;
     let pixels_argb = rgba_to_argb(&pixels_rgba);
@@ -168,10 +181,7 @@ impl<R: Read> StreamExt for R {
         let mut data = vec![0; tag.len()];
         self.read_exact(&mut data)?;
         if data != *tag {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Tag mismatch",
-            ))
+            Err(Error::new(ErrorKind::Other, "Tag mismatch"))
         } else {
             Ok(())
         }
