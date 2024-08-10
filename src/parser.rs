@@ -124,11 +124,7 @@ fn parse_img(i: &mut impl Read) -> IoResult<Image> {
 fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
     let mut res = Vec::with_capacity(i.len());
 
-    for rgba in i.chunks(4) {
-        if rgba.len() < 4 {
-            break;
-        }
-
+    for rgba in i.chunks_exact(4) {
         res.push(rgba[3]);
         res.push(rgba[0]);
         res.push(rgba[1]);
