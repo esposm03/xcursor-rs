@@ -2,6 +2,7 @@ use std::{
     convert::TryInto,
     fmt,
     fmt::{Debug, Formatter},
+    io::{Cursor, Read, Result as IoResult, Seek, SeekFrom},
     mem::size_of,
 };
 
@@ -55,31 +56,28 @@ impl std::fmt::Display for Image {
     }
 }
 
-fn parse_header(mut i: Stream<'_>) -> Option<(Stream<'_>, u32)> {
+fn parse_header(i: &mut impl Read) -> IoResult<u32> {
     i.tag(b"Xcur")?;
     i.u32_le()?;
     i.u32_le()?;
     let ntoc = i.u32_le()?;
 
-    Some((i, ntoc))
+    Ok(ntoc)
 }
 
-fn parse_toc(mut i: Stream<'_>) -> Option<(Stream<'_>, Toc)> {
+fn parse_toc(i: &mut impl Read) -> IoResult<Toc> {
     let toctype = i.u32_le()?; // Type
     let subtype = i.u32_le()?; // Subtype
     let pos = i.u32_le()?; // Position
 
-    Some((
-        i,
-        Toc {
-            toctype,
-            subtype,
-            pos,
-        },
-    ))
+    Ok(Toc {
+        toctype,
+        subtype,
+        pos,
+    })
 }
 
-fn parse_img(mut i: Stream<'_>) -> Option<(Stream<'_>, Image)> {
+fn parse_img(i: &mut impl Read) -> IoResult<Image> {
     i.tag(&[0x24, 0x00, 0x00, 0x00])?; // Header size
     i.tag(&[0x02, 0x00, 0xfd, 0xff])?; // Type
     let size = i.u32_le()?;
@@ -91,23 +89,19 @@ fn parse_img(mut i: Stream<'_>) -> Option<(Stream<'_>, Image)> {
     let delay = i.u32_le()?;
 
     let img_length: usize = (4 * width * height) as usize;
-    let pixels_slice = i.take_bytes(img_length)?;
-    let pixels_argb = rgba_to_argb(pixels_slice);
-    let pixels_rgba = Vec::from(pixels_slice);
+    let pixels_rgba = i.take_bytes(img_length)?;
+    let pixels_argb = rgba_to_argb(&pixels_rgba);
 
-    Some((
-        i,
-        Image {
-            size,
-            width,
-            height,
-            xhot,
-            yhot,
-            delay,
-            pixels_argb,
-            pixels_rgba,
-        },
-    ))
+    Ok(Image {
+        size,
+        width,
+        height,
+        xhot,
+        yhot,
+        delay,
+        pixels_argb,
+        pixels_rgba,
+    })
 }
 
 /// Converts a RGBA slice into an ARGB vec
@@ -133,57 +127,63 @@ fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
 
 /// Parse an XCursor file into its images.
 pub fn parse_xcursor(content: &[u8]) -> Option<Vec<Image>> {
-    let (mut i, ntoc) = parse_header(content)?;
-    let mut imgs = Vec::with_capacity(ntoc as usize);
+    parse_xcursor_stream(&mut Cursor::new(content)).ok()
+}
 
+/// Parse an XCursor file into its images.
+pub fn parse_xcursor_stream<R: Read + Seek>(input: &mut R) -> IoResult<Vec<Image>> {
+    let ntoc = parse_header(input)?;
+
+    let mut img_indices = Vec::new();
     for _ in 0..ntoc {
-        let (j, toc) = parse_toc(i)?;
-        i = j;
+        let toc = parse_toc(input)?;
 
         if toc.toctype == 0xfffd_0002 {
-            let index = toc.pos as usize..;
-            let (_, img) = parse_img(&content[index])?;
-            imgs.push(img);
+            img_indices.push(toc.pos);
         }
     }
 
-    Some(imgs)
+    let mut imgs = Vec::with_capacity(ntoc as usize);
+    for index in img_indices {
+        input.seek(SeekFrom::Start(index.into()))?;
+        imgs.push(parse_img(input)?);
+    }
+
+    Ok(imgs)
 }
 
-type Stream<'a> = &'a [u8];
-
-trait StreamExt<'a>: 'a {
+trait StreamExt {
     /// Parse a series of bytes, returning `None` if it doesn't exist.
-    fn tag(&mut self, tag: &[u8]) -> Option<()>;
+    fn tag(&mut self, tag: &[u8]) -> IoResult<()>;
 
     /// Take a slice of bytes.
-    fn take_bytes(&mut self, len: usize) -> Option<&'a [u8]>;
+    fn take_bytes(&mut self, len: usize) -> IoResult<Vec<u8>>;
 
     /// Parse a 32-bit little endian number.
-    fn u32_le(&mut self) -> Option<u32>;
+    fn u32_le(&mut self) -> IoResult<u32>;
 }
 
-impl<'a> StreamExt<'a> for Stream<'a> {
-    fn tag(&mut self, tag: &[u8]) -> Option<()> {
-        if self.len() < tag.len() || self[..tag.len()] != *tag {
-            None
+impl<R: Read> StreamExt for R {
+    fn tag(&mut self, tag: &[u8]) -> IoResult<()> {
+        let mut data = vec![0; tag.len()];
+        self.read_exact(&mut data)?;
+        if data != *tag {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Tag mismatch",
+            ))
         } else {
-            *self = &self[tag.len()..];
-            Some(())
+            Ok(())
         }
     }
 
-    fn take_bytes(&mut self, len: usize) -> Option<&'a [u8]> {
-        if self.len() < len {
-            None
-        } else {
-            let (value, tail) = self.split_at(len);
-            *self = tail;
-            Some(value)
-        }
+    fn take_bytes(&mut self, len: usize) -> IoResult<Vec<u8>> {
+        let mut data = vec![0; len];
+        self.read_exact(&mut data)?;
+        Ok(data)
     }
 
-    fn u32_le(&mut self) -> Option<u32> {
+    fn u32_le(&mut self) -> IoResult<u32> {
         self.take_bytes(size_of::<u32>())
             .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
     }
@@ -192,6 +192,7 @@ impl<'a> StreamExt<'a> for Stream<'a> {
 #[cfg(test)]
 mod tests {
     use super::{parse_header, parse_toc, rgba_to_argb, Toc};
+    use std::io::Cursor;
 
     // A sample (and simple) XCursor file generated with xcursorgen.
     // Contains a single 4x4 image.
@@ -209,10 +210,9 @@ mod tests {
 
     #[test]
     fn test_parse_header() {
-        assert_eq!(
-            parse_header(&FILE_CONTENTS).unwrap(),
-            (&FILE_CONTENTS[16..], 1)
-        )
+        let mut cursor = Cursor::new(&FILE_CONTENTS);
+        assert_eq!(parse_header(&mut cursor).unwrap(), 1);
+        assert_eq!(cursor.position(), 16);
     }
 
     #[test]
@@ -222,10 +222,9 @@ mod tests {
             subtype: 4,
             pos: 0x1c,
         };
-        assert_eq!(
-            parse_toc(&FILE_CONTENTS[16..]).unwrap(),
-            (&FILE_CONTENTS[28..], toc)
-        )
+        let mut cursor = Cursor::new(&FILE_CONTENTS[16..]);
+        assert_eq!(parse_toc(&mut cursor).unwrap(), toc);
+        assert_eq!(cursor.position(), 28 - 16);
     }
 
     #[test]
