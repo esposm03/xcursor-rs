@@ -1,8 +1,6 @@
 use std::{
-    convert::TryInto,
     fmt::{self, Debug, Formatter},
     io::{Cursor, Error, ErrorKind, Read, Result as IoResult, Seek, SeekFrom},
-    mem::size_of,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -195,8 +193,9 @@ impl<R: Read> StreamExt for R {
     }
 
     fn u32_le(&mut self) -> IoResult<u32> {
-        self.take_bytes(size_of::<u32>())
-            .map(|bytes| u32::from_le_bytes(bytes.as_slice().try_into().unwrap()))
+        let mut data = [0u8; 4];
+        self.read_exact(&mut data)?;
+        Ok(u32::from_le_bytes(data))
     }
 }
 
