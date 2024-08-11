@@ -54,7 +54,7 @@ impl std::fmt::Display for Image {
 }
 
 fn parse_header(i: &mut impl Read) -> IoResult<(u32, u32)> {
-    i.tag(b"Xcur")?;
+    i.tag(*b"Xcur")?;
     let header = i.u32_le()?;
     let _version = i.u32_le()?;
     let ntoc = i.u32_le()?;
@@ -75,10 +75,10 @@ fn parse_toc(i: &mut impl Read) -> IoResult<Toc> {
 }
 
 fn parse_img(i: &mut impl Read) -> IoResult<Image> {
-    i.tag(&[0x24, 0x00, 0x00, 0x00])?; // Header size
-    i.tag(&[0x02, 0x00, 0xfd, 0xff])?; // Type
+    i.tag([0x24, 0x00, 0x00, 0x00])?; // Header size
+    i.tag([0x02, 0x00, 0xfd, 0xff])?; // Type
     let size = i.u32_le()?;
-    i.tag(&[0x01, 0x00, 0x00, 0x00])?; // Image version (1)
+    i.tag([0x01, 0x00, 0x00, 0x00])?; // Image version (1)
     let width = i.u32_le()?;
     let height = i.u32_le()?;
     let xhot = i.u32_le()?;
@@ -166,7 +166,7 @@ pub fn parse_xcursor_stream<R: Read + Seek>(input: &mut R) -> IoResult<Vec<Image
 
 trait StreamExt {
     /// Parse a series of bytes, returning `None` if it doesn't exist.
-    fn tag(&mut self, tag: &[u8]) -> IoResult<()>;
+    fn tag(&mut self, tag: [u8; 4]) -> IoResult<()>;
 
     /// Take a slice of bytes.
     fn take_bytes(&mut self, len: usize) -> IoResult<Vec<u8>>;
@@ -176,8 +176,8 @@ trait StreamExt {
 }
 
 impl<R: Read> StreamExt for R {
-    fn tag(&mut self, tag: &[u8]) -> IoResult<()> {
-        let mut data = vec![0; tag.len()];
+    fn tag(&mut self, tag: [u8; 4]) -> IoResult<()> {
+        let mut data = [0u8; 4];
         self.read_exact(&mut data)?;
         if data != tag {
             Err(Error::new(ErrorKind::Other, "Tag mismatch"))
