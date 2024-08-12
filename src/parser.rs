@@ -124,11 +124,7 @@ fn parse_img(i: &mut impl Read) -> IoResult<Image> {
 fn rgba_to_argb(i: &[u8]) -> Vec<u8> {
     let mut res = Vec::with_capacity(i.len());
 
-    for rgba in i.chunks(4) {
-        if rgba.len() < 4 {
-            break;
-        }
-
+    for rgba in i.chunks_exact(4) {
         res.push(rgba[3]);
         res.push(rgba[0]);
         res.push(rgba[1]);
@@ -202,7 +198,7 @@ impl<R: Read> StreamExt for R {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_header, parse_toc, rgba_to_argb, Toc};
+    use super::{parse_header, parse_toc, parse_xcursor, rgba_to_argb, Image, Toc};
     use std::io::Cursor;
 
     // A sample (and simple) XCursor file generated with xcursorgen.
@@ -236,6 +232,74 @@ mod tests {
         let mut cursor = Cursor::new(&FILE_CONTENTS[16..]);
         assert_eq!(parse_toc(&mut cursor).unwrap(), toc);
         assert_eq!(cursor.position(), 28 - 16);
+    }
+
+    #[test]
+    fn test_parse_image() {
+        // The image always repeats the same pixels across its 4 x 4 pixels
+        let make_pixels = |pixel: [u8; 4]| {
+            // This is just "pixels.repeat(4 * 4)", but working in Rust 1.34
+            std::iter::repeat(pixel)
+                .take(4 * 4)
+                .flat_map(|p| p.iter().cloned().collect::<Vec<_>>())
+                .collect()
+        };
+        let expected = Image {
+            size: 4,
+            width: 4,
+            height: 4,
+            xhot: 1,
+            yhot: 1,
+            delay: 1,
+            pixels_rgba: make_pixels([0, 0, 0, 128]),
+            pixels_argb: make_pixels([128, 0, 0, 0]),
+        };
+        assert_eq!(Some(vec![expected]), parse_xcursor(&FILE_CONTENTS));
+    }
+
+    #[test]
+    fn test_one_image_three_times() {
+        let data = [
+            b'X', b'c', b'u', b'r', // magic
+            0x10, 0x00, 0x00, 0x00, // header file offset (16)
+            0x00, 0x00, 0x00, 0x00, // version
+            0x03, 0x00, 0x00, 0x00, // num TOC entries, 3
+            // TOC
+            0x02, 0x00, 0xfd, 0xff, // IMAGE_TYPE
+            0x04, 0x00, 0x00, 0x00, // size 4
+            0x34, 0x00, 0x00, 0x00, // image offset (52)
+            0x02, 0x00, 0xfd, 0xff, // IMAGE_TYPE
+            0x03, 0x00, 0x00, 0x00, // size 3
+            0x34, 0x00, 0x00, 0x00, // image offset (52)
+            0x02, 0x00, 0xfd, 0xff, // IMAGE_TYPE
+            0x04, 0x00, 0x00, 0x00, // size 4
+            0x34, 0x00, 0x00, 0x00, // image offset (52)
+            // image
+            0x24, 0x00, 0x00, 0x00, // header
+            0x02, 0x00, 0xfd, 0xff, // IMAGE_TYPE
+            0x04, 0x00, 0x00, 0x00, // size 4
+            0x01, 0x00, 0x00, 0x00, // version
+            0x01, 0x00, 0x00, 0x00, // width 1
+            0x01, 0x00, 0x00, 0x00, // height 1
+            0x00, 0x00, 0x00, 0x00, // x_hot 0
+            0x00, 0x00, 0x00, 0x00, // y_hot 0
+            0x00, 0x00, 0x00, 0x00, // delay 0
+            0x12, 0x34, 0x56, 0x78, // pixel
+        ];
+        let expected = Image {
+            size: 4,
+            width: 1,
+            height: 1,
+            xhot: 0,
+            yhot: 0,
+            delay: 0,
+            pixels_rgba: vec![0x12, 0x34, 0x56, 0x78],
+            pixels_argb: vec![0x78, 0x12, 0x34, 0x56],
+        };
+        assert_eq!(
+            Some(vec![expected.clone(), expected.clone(), expected.clone()]),
+            parse_xcursor(&data)
+        );
     }
 
     #[test]
