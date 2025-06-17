@@ -140,76 +140,106 @@ impl CursorThemeIml {
     }
 }
 
-/// Get the list of paths where the themes have to be searched,
-/// according to the XDG Icon Theme specification, respecting `XCURSOR_PATH` env
-/// variable, in case it was set.
-fn theme_search_paths() -> Vec<PathBuf> {
-    // Handle the `XCURSOR_PATH` env variable, which takes over default search paths for cursor
-    // theme. Some systems rely are using non standard directory layout and primary using this
-    // env variable to perform cursor loading from a right places.
-    let xcursor_path = match env::var("XCURSOR_PATH") {
-        Ok(xcursor_path) => xcursor_path.split(':').map(PathBuf::from).collect(),
-        Err(_) => {
-            // Get icons locations from XDG data directories.
-            let get_icon_dirs = |xdg_path: String| -> Vec<PathBuf> {
-                xdg_path
-                    .split(':')
-                    .map(|entry| {
-                        let mut entry = PathBuf::from(entry);
-                        entry.push("icons");
-                        entry
-                    })
-                    .collect()
-            };
+#[derive(Default)]
+struct SearchPathsEnvironment {
+    home: Option<String>,
+    xcursor_path: Option<String>,
+    xdg_data_home: Option<String>,
+    xdg_data_dirs: Option<String>,
+}
 
-            let mut xdg_data_home = get_icon_dirs(
-                env::var("XDG_DATA_HOME").unwrap_or_else(|_| String::from("~/.local/share")),
-            );
-
-            let mut xdg_data_dirs = get_icon_dirs(
-                env::var("XDG_DATA_DIRS")
-                    .unwrap_or_else(|_| String::from("/usr/local/share:/usr/share")),
-            );
-
-            let mut xcursor_path =
-                Vec::with_capacity(xdg_data_dirs.len() + xdg_data_home.len() + 4);
-
-            // The order is following other XCursor loading libs, like libwayland-cursor.
-            xcursor_path.append(&mut xdg_data_home);
-            xcursor_path.push(PathBuf::from("~/.icons"));
-            xcursor_path.append(&mut xdg_data_dirs);
-            xcursor_path.push(PathBuf::from("/usr/share/pixmaps"));
-            xcursor_path.push(PathBuf::from("~/.cursors"));
-            xcursor_path.push(PathBuf::from("/usr/share/cursors/xorg-x11"));
-
-            xcursor_path
+impl SearchPathsEnvironment {
+    fn get() -> Self {
+        SearchPathsEnvironment {
+            home: env::var("HOME").ok().filter(|x| x.is_empty()),
+            xcursor_path: env::var("XCURSOR_PATH").ok().filter(|x| x.is_empty()),
+            xdg_data_home: env::var("XDG_DATA_HOME").ok().filter(|x| x.is_empty()),
+            xdg_data_dirs: env::var("XDG_DATA_DIRS").ok().filter(|x| x.is_empty()),
         }
-    };
+    }
+}
 
-    let homedir = env::var("HOME");
+/// Get the list of paths where the themes have to be searched, according to the XDG Icon Theme
+/// specification. If `XCURSOR_PATH` is set, it will override the default search paths.
+fn theme_search_paths() -> Vec<PathBuf> {
+    theme_search_paths_from_environment(SearchPathsEnvironment::get())
+}
 
-    xcursor_path
-        .into_iter()
-        .filter_map(|dir| {
-            // Replace `~` in a path with `$HOME` for compatibility with other libs.
-            let mut expaned_dir = PathBuf::new();
+fn theme_search_paths_from_environment(environment: SearchPathsEnvironment) -> Vec<PathBuf> {
+    let home_dir = environment
+        .home
+        .as_ref()
+        .map(|home| Path::new(home.as_str()));
 
-            for component in dir.iter() {
-                if component == "~" {
-                    let homedir = match homedir.as_ref() {
-                        Ok(homedir) => homedir.clone(),
-                        Err(_) => return None,
-                    };
+    if let Some(xcursor_path) = environment.xcursor_path {
+        return parse_to_icons_dir_list(&xcursor_path, home_dir);
+    }
 
-                    expaned_dir.push(homedir);
-                } else {
-                    expaned_dir.push(component);
-                }
+    // The order is following other XCursor loading libs, like libwayland-cursor.
+    let mut paths = Vec::new();
+
+    if let Some(xdg_data_home) = environment.xdg_data_home {
+        paths.extend(expand_home_dir(PathBuf::from(xdg_data_home), home_dir));
+    } else if let Some(home_dir) = home_dir {
+        paths.push(home_dir.join(".local/share/icons"))
+    }
+
+    if let Some(home_dir) = home_dir {
+        paths.push(home_dir.join(".icons"));
+    }
+
+    if let Some(xdg_data_dirs) = environment.xdg_data_dirs {
+        paths.extend(parse_to_icons_dir_list(&xdg_data_dirs, home_dir));
+    } else {
+        paths.push(PathBuf::from("/usr/local/share/icons"));
+        paths.push(PathBuf::from("/usr/share/icons"));
+    }
+
+    paths.push(PathBuf::from("/usr/share/pixmaps"));
+
+    if let Some(home_dir) = home_dir {
+        paths.push(home_dir.join(".cursors"));
+    }
+
+    paths.push(PathBuf::from("/usr/share/cursors/xorg-x11"));
+
+    paths
+}
+
+/// Parses colon separated path lists, skipping empty elements and expanding home dirs in paths that
+/// begin with `~/`. Adds `icons` dir to every path.
+fn parse_to_icons_dir_list(path_list: &str, home_dir: Option<&Path>) -> Vec<PathBuf> {
+    path_list
+        .split(':')
+        .flat_map(|entry| {
+            if entry.is_empty() {
+                return None;
             }
-
-            Some(expaned_dir)
+            let mut entry = expand_home_dir(PathBuf::from(entry), home_dir)?;
+            entry.push("icons");
+            Some(entry)
         })
         .collect()
+}
+
+/// If the first component of the path is `~`, replaces it with the home dir. If no home dir is
+/// present, returns `None`.
+fn expand_home_dir(path: PathBuf, home_dir: Option<&Path>) -> Option<PathBuf> {
+    let mut components = path.iter();
+    if let Some(first_component) = components.next() {
+        if first_component == "~" {
+            if let Some(home_dir) = home_dir {
+                let mut path = home_dir.to_path_buf();
+                for component in components {
+                    path.push(component);
+                }
+                return Some(path);
+            } else {
+                return None;
+            }
+        }
+    }
+    return Some(path);
 }
 
 /// Load the specified index.theme file, and returns a `Some` with
@@ -259,10 +289,11 @@ fn parse_theme(content: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_theme;
+    use super::*;
+    use std::path::{Path, PathBuf};
 
     #[test]
-    fn parse_inherits() {
+    fn test_parse_theme() {
         let theme_name = String::from("XCURSOR_RS");
 
         let theme = format!("Inherits={}", theme_name.clone());
@@ -294,5 +325,74 @@ mod tests {
         );
 
         assert_eq!(parse_theme(&theme), Some(theme_name.clone()));
+    }
+
+    #[test]
+    fn test_expand_home_dir() {
+        let home = Path::new("/home/user");
+
+        let result = expand_home_dir("~".into(), Some(home));
+        assert_eq!(result, Some("/home/user".into()));
+
+        let result = expand_home_dir("~/.icons".into(), Some(home));
+        assert_eq!(result, Some("/home/user/.icons".into()));
+
+        let result = expand_home_dir("~/.local/share/icons".into(), Some(home));
+        assert_eq!(result, Some("/home/user/.local/share/icons".into()));
+
+        let result = expand_home_dir("~/.icons".into(), None);
+        assert_eq!(result, None);
+
+        let path: PathBuf = "/usr/share/icons".into();
+        let result = expand_home_dir(path.clone(), Some(home));
+        assert_eq!(result, Some(path));
+
+        let path: PathBuf = "".into();
+        let result = expand_home_dir(path.clone(), Some(home));
+        assert_eq!(result, Some(path));
+
+        // ~ in the middle of path should not expand
+        let path: PathBuf = "/some/path/~/icons".into();
+        let result = expand_home_dir(path.clone(), Some(home));
+        assert_eq!(result, Some(path));
+    }
+
+    #[test]
+    fn test_theme_search_paths_from_environment() {
+        assert_eq!(
+            theme_search_paths_from_environment(SearchPathsEnvironment {
+                home: Some("/home/user".to_string()),
+                xcursor_path: Some("~/custom/xcursor".to_string()),
+                xdg_data_home: Some("/home/user/.data".to_string()),
+                xdg_data_dirs: Some("/opt/share::/usr/local/share:~/custom/share".to_string()),
+            }),
+            vec![
+                PathBuf::from("/home/user/custom/xcursor"),
+                PathBuf::from("/home/user/.data"),
+                PathBuf::from("/home/user/.icons"),
+                PathBuf::from("/opt/share/icons"),
+                PathBuf::from("/usr/local/share/icons"),
+                PathBuf::from("/home/user/custom/share/icons"),
+                PathBuf::from("/usr/share/pixmaps"),
+                PathBuf::from("/home/user/.cursors"),
+                PathBuf::from("/usr/share/cursors/xorg-x11"),
+            ]
+        );
+
+        // no home causes tilde paths to be omitted
+        assert_eq!(
+            theme_search_paths_from_environment(SearchPathsEnvironment {
+                home: None,
+                xcursor_path: Some("~/cursors".to_string()),
+                xdg_data_home: Some("~/.data".to_string()),
+                xdg_data_dirs: None,
+            }),
+            vec![
+                PathBuf::from("/usr/local/share/icons"),
+                PathBuf::from("/usr/share/icons"),
+                PathBuf::from("/usr/share/pixmaps"),
+                PathBuf::from("/usr/share/cursors/xorg-x11"),
+            ]
+        );
     }
 }
