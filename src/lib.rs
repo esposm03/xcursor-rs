@@ -20,7 +20,7 @@ impl CursorTheme {
     /// and returns an XCursorTheme which represents it. If no inheritance
     /// can be determined, then the themes inherits from the "default" theme.
     pub fn load(name: &str) -> Self {
-        let search_paths = theme_search_paths();
+        let search_paths = theme_search_paths(SearchPathsEnvironment::get());
 
         let theme = CursorThemeIml::load(name, &search_paths);
 
@@ -161,18 +161,22 @@ impl SearchPathsEnvironment {
 
 /// Get the list of paths where the themes have to be searched, according to the XDG Icon Theme
 /// specification. If `XCURSOR_PATH` is set, it will override the default search paths.
-fn theme_search_paths() -> Vec<PathBuf> {
-    theme_search_paths_from_environment(SearchPathsEnvironment::get())
-}
-
-fn theme_search_paths_from_environment(environment: SearchPathsEnvironment) -> Vec<PathBuf> {
+fn theme_search_paths(environment: SearchPathsEnvironment) -> Vec<PathBuf> {
     let home_dir = environment
         .home
         .as_ref()
         .map(|home| Path::new(home.as_str()));
 
     if let Some(xcursor_path) = environment.xcursor_path {
-        return parse_to_icons_dir_list(&xcursor_path, home_dir);
+        return xcursor_path
+            .split(':')
+            .flat_map(|entry| {
+                if entry.is_empty() {
+                    return None;
+                }
+                expand_home_dir(PathBuf::from(entry), home_dir)
+            })
+            .collect();
     }
 
     // The order is following other XCursor loading libs, like libwayland-cursor.
@@ -189,7 +193,14 @@ fn theme_search_paths_from_environment(environment: SearchPathsEnvironment) -> V
     }
 
     if let Some(xdg_data_dirs) = environment.xdg_data_dirs {
-        paths.extend(parse_to_icons_dir_list(&xdg_data_dirs, home_dir));
+        paths.extend(xdg_data_dirs.split(':').flat_map(|entry| {
+            if entry.is_empty() {
+                return None;
+            }
+            let mut entry = expand_home_dir(PathBuf::from(entry), home_dir)?;
+            entry.push("icons");
+            Some(entry)
+        }))
     } else {
         paths.push(PathBuf::from("/usr/local/share/icons"));
         paths.push(PathBuf::from("/usr/share/icons"));
@@ -204,22 +215,6 @@ fn theme_search_paths_from_environment(environment: SearchPathsEnvironment) -> V
     paths.push(PathBuf::from("/usr/share/cursors/xorg-x11"));
 
     paths
-}
-
-/// Parses colon separated path lists, skipping empty elements and expanding home dirs in paths that
-/// begin with `~/`. Adds `icons` dir to every path.
-fn parse_to_icons_dir_list(path_list: &str, home_dir: Option<&Path>) -> Vec<PathBuf> {
-    path_list
-        .split(':')
-        .flat_map(|entry| {
-            if entry.is_empty() {
-                return None;
-            }
-            let mut entry = expand_home_dir(PathBuf::from(entry), home_dir)?;
-            entry.push("icons");
-            Some(entry)
-        })
-        .collect()
 }
 
 /// If the first component of the path is `~`, replaces it with the home dir. If no home dir is
@@ -239,7 +234,7 @@ fn expand_home_dir(path: PathBuf, home_dir: Option<&Path>) -> Option<PathBuf> {
             }
         }
     }
-    return Some(path);
+    Some(path)
 }
 
 /// Load the specified index.theme file, and returns a `Some` with
@@ -358,16 +353,15 @@ mod tests {
     }
 
     #[test]
-    fn test_theme_search_paths_from_environment() {
+    fn test_theme_search_paths() {
         assert_eq!(
-            theme_search_paths_from_environment(SearchPathsEnvironment {
+            theme_search_paths(SearchPathsEnvironment {
                 home: Some("/home/user".to_string()),
-                xcursor_path: Some("~/custom/xcursor".to_string()),
                 xdg_data_home: Some("/home/user/.data".to_string()),
                 xdg_data_dirs: Some("/opt/share::/usr/local/share:~/custom/share".to_string()),
+                ..Default::default()
             }),
             vec![
-                PathBuf::from("/home/user/custom/xcursor"),
                 PathBuf::from("/home/user/.data"),
                 PathBuf::from("/home/user/.icons"),
                 PathBuf::from("/opt/share/icons"),
@@ -379,13 +373,24 @@ mod tests {
             ]
         );
 
+        // XCURSOR_PATH overrides all other paths
+        assert_eq!(
+            theme_search_paths(SearchPathsEnvironment {
+                home: Some("/home/user".to_string()),
+                xcursor_path: Some("~/custom/xcursor/icons:/absolute-path/icons".to_string()),
+                ..Default::default()
+            }),
+            vec![
+                PathBuf::from("/home/user/custom/xcursor/icons"),
+                PathBuf::from("/absolute-path/icons")
+            ]
+        );
+
         // no home causes tilde paths to be omitted
         assert_eq!(
-            theme_search_paths_from_environment(SearchPathsEnvironment {
-                home: None,
-                xcursor_path: Some("~/cursors".to_string()),
+            theme_search_paths(SearchPathsEnvironment {
                 xdg_data_home: Some("~/.data".to_string()),
-                xdg_data_dirs: None,
+                ..Default::default()
             }),
             vec![
                 PathBuf::from("/usr/local/share/icons"),
