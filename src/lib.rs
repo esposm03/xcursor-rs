@@ -151,10 +151,10 @@ struct SearchPathsEnvironment {
 impl SearchPathsEnvironment {
     fn get() -> Self {
         SearchPathsEnvironment {
-            home: env::var("HOME").ok().filter(|x| x.is_empty()),
-            xcursor_path: env::var("XCURSOR_PATH").ok().filter(|x| x.is_empty()),
-            xdg_data_home: env::var("XDG_DATA_HOME").ok().filter(|x| x.is_empty()),
-            xdg_data_dirs: env::var("XDG_DATA_DIRS").ok().filter(|x| x.is_empty()),
+            home: env::var("HOME").ok().filter(|x| !x.is_empty()),
+            xcursor_path: env::var("XCURSOR_PATH").ok().filter(|x| !x.is_empty()),
+            xdg_data_home: env::var("XDG_DATA_HOME").ok().filter(|x| !x.is_empty()),
+            xdg_data_dirs: env::var("XDG_DATA_DIRS").ok().filter(|x| !x.is_empty()),
         }
     }
 }
