@@ -38,8 +38,11 @@ impl CursorTheme {
         let mut walked_themes = HashSet::new();
 
         self.theme
-            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes)
-            .map(|(pathbuf, _)| pathbuf)
+            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes, false)
+            .map(|(cursor, _)| match cursor {
+                Cursor::Scalable(cursor) => cursor,
+                Cursor::XCursor(_) => unreachable!(),
+            })
     }
 
     /// Try to load an icon from the theme, returning it with its inheritance
@@ -53,8 +56,37 @@ impl CursorTheme {
         let mut walked_themes = HashSet::new();
 
         self.theme
-            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes)
+            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes, false)
+            .map(|(cursor, depth)| {
+                (
+                    match cursor {
+                        Cursor::Scalable(cursor) => cursor,
+                        Cursor::XCursor(_) => unreachable!(),
+                    },
+                    depth,
+                )
+            })
     }
+
+    pub fn load_scalable(&self, icon_name: &str) -> Option<Cursor> {
+        let mut walked_themes = HashSet::new();
+
+        self.theme
+            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes, true)
+            .map(|(cursor, _)| cursor)
+    }
+
+    pub fn load_scalable_with_depth(&self, icon_name: &str) -> Option<(Cursor, usize)> {
+        let mut walked_themes = HashSet::new();
+
+        self.theme
+            .load_icon_with_depth(icon_name, &self.search_paths, &mut walked_themes, true)
+    }
+}
+
+pub enum Cursor {
+    Scalable(PathBuf),
+    XCursor(PathBuf),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -102,13 +134,23 @@ impl CursorThemeIml {
         icon_name: &str,
         search_paths: &[PathBuf],
         walked_themes: &mut HashSet<String>,
-    ) -> Option<(PathBuf, usize)> {
+        prefer_scalable: bool,
+    ) -> Option<(Cursor, usize)> {
         for data in &self.data {
+            if prefer_scalable {
+                let mut icon_path = data.0.clone();
+                icon_path.push("cursors_scalable");
+                icon_path.push(icon_name);
+                if icon_path.is_dir() {
+                    return Some((Cursor::Scalable(icon_path), 0));
+                }
+            }
+
             let mut icon_path = data.0.clone();
             icon_path.push("cursors");
             icon_path.push(icon_name);
             if icon_path.is_file() {
-                return Some((icon_path, 0));
+                return Some((Cursor::XCursor(icon_path), 0));
             }
         }
 
@@ -130,7 +172,12 @@ impl CursorThemeIml {
 
             let inherited_theme = CursorThemeIml::load(inherits, search_paths);
 
-            match inherited_theme.load_icon_with_depth(icon_name, search_paths, walked_themes) {
+            match inherited_theme.load_icon_with_depth(
+                icon_name,
+                search_paths,
+                walked_themes,
+                prefer_scalable,
+            ) {
                 Some((icon_path, depth)) => return Some((icon_path, depth + 1)),
                 None => continue,
             }
