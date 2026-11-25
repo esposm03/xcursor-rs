@@ -258,7 +258,10 @@ fn theme_search_paths(environment: SearchPathsEnvironment) -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     if let Some(xdg_data_home) = environment.xdg_data_home {
-        paths.extend(expand_home_dir(PathBuf::from(xdg_data_home), home_dir));
+        if let Some(mut path) = expand_home_dir(PathBuf::from(xdg_data_home), home_dir) {
+            path.push("icons");
+            paths.push(path);
+        }
     } else if let Some(home_dir) = home_dir {
         paths.push(home_dir.join(".local/share/icons"))
     }
@@ -437,7 +440,7 @@ mod tests {
                 ..Default::default()
             }),
             vec![
-                PathBuf::from("/home/user/.data"),
+                PathBuf::from("/home/user/.data/icons"),
                 PathBuf::from("/home/user/.icons"),
                 PathBuf::from("/opt/share/icons"),
                 PathBuf::from("/usr/local/share/icons"),
